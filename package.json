@@ -10,7 +10,8 @@
     "test": "node --test test/",
     "test:core": "node --test test/core.test.js",
     "test:integration": "node --test test/integration.test.js",
-    "smoke": "node test/ui-smoke.js",
+    "smoke": "electron test/ui-smoke.js",
+    "smoke:headless": "xvfb-run -a electron test/ui-smoke.js --no-sandbox --disable-gpu",
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux"

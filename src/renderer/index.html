@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
+  <title>SSH Remote Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">⚡ SSH Remote Studio</span>
+        <button id="btn-add-conn" class="icon-btn" title="新建连接 (Ctrl+N)">＋</button>
+      </div>
+      <div class="sidebar-section-title">连接</div>
+      <ul id="conn-list"></ul>
+      <div class="sidebar-footer">
+        <span id="app-version"></span>
+        <span id="enc-state" title="密钥是否加密存储"></span>
+      </div>
+    </aside>
+
+    <main id="main">
+      <div id="welcome">
+        <div class="welcome-card">
+          <h1>⚡ SSH Remote Studio</h1>
+          <p>通过 SSH 打开远程计算机上的任意文件夹，浏览与编辑文件，并管理端口转发。</p>
+          <ul class="welcome-tips">
+            <li>📁 在左侧新建一个连接（支持密码 / 私钥 / Agent 认证）</li>
+            <li>📝 连接后浏览远程目录树，打开并保存文件</li>
+            <li>🔌 在「端口转发」中添加本地 (-L)、远程 (-R) 或动态 SOCKS (-D) 转发</li>
+          </ul>
+          <button id="btn-welcome-add" class="primary">＋ 新建连接</button>
+        </div>
+      </div>
+
+      <div id="workspace" hidden>
+        <div id="tabbar">
+          <button class="tab active" data-tab="files">📁 文件</button>
+          <button class="tab" data-tab="ports">🔌 端口转发 <span id="port-count" class="badge" hidden>0</span></button>
+          <div class="tabbar-right">
+            <span id="conn-label" class="conn-label"></span>
+            <span id="conn-state" class="state-dot"></span>
+            <button id="btn-disconnect" class="ghost">断开</button>
+          </div>
+        </div>
+
+        <section id="view-files" class="view">
+          <div id="files-toolbar">
+            <button id="btn-home" class="icon-btn" title="主目录">🏠</button>
+            <button id="btn-up" class="icon-btn" title="上级目录">⬆</button>
+            <input id="path-input" type="text" spellcheck="false" placeholder="远程路径，回车跳转" />
+            <button id="btn-refresh" class="icon-btn" title="刷新">⟳</button>
+            <span class="toolbar-sep"></span>
+            <button id="btn-new-file" class="ghost" title="新建文件">＋文件</button>
+            <button id="btn-new-dir" class="ghost" title="新建文件夹">＋文件夹</button>
+            <button id="btn-upload" class="ghost" title="上传文件到当前目录">⬆上传</button>
+            <button id="btn-download" class="ghost" title="下载选中文件">⬇下载</button>
+            <button id="btn-rename" class="ghost" title="重命名选中项">改名</button>
+            <button id="btn-delete" class="ghost danger" title="删除选中项">删除</button>
+          </div>
+          <div id="files-body">
+            <div id="tree-pane">
+              <ul id="tree"></ul>
+            </div>
+            <div id="editor-pane">
+              <div id="editor-header" hidden>
+                <span id="editor-path" class="editor-path"></span>
+                <span id="editor-modified" class="modified" hidden>●</span>
+                <span class="spacer"></span>
+                <span id="editor-info" class="editor-info"></span>
+                <button id="btn-save" class="primary small" title="保存 (Ctrl+S)">💾 保存</button>
+                <button id="btn-close-file" class="icon-btn" title="关闭">✕</button>
+              </div>
+              <div id="editor-wrap" hidden>
+                <div id="gutter"></div>
+                <textarea id="editor" spellcheck="false" wrap="off"></textarea>
+              </div>
+              <div id="editor-empty">
+                <p>📂 从左侧目录树选择一个文件以打开</p>
+                <p class="muted">支持查看与编辑文本文件，Ctrl+S 保存到远程</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-ports" class="view" hidden>
+          <div id="ports-toolbar">
+            <button id="btn-add-forward" class="primary">＋ 转发端口</button>
+            <span class="muted">转发端口以在本地访问正在运行的服务</span>
+            <span class="spacer"></span>
+            <button id="btn-refresh-ports" class="icon-btn" title="刷新">⟳</button>
+          </div>
+          <div id="ports-table-wrap">
+            <table id="ports-table">
+              <thead>
+                <tr>
+                  <th>类型</th><th>转发</th><th>本地地址</th><th>状态</th><th>连接数</th><th>流量</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="ports-body"></tbody>
+            </table>
+            <div id="ports-empty">
+              <p>没有转发的端口。</p>
+              <button id="btn-add-forward-empty" class="primary">转发端口</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="statusbar">
+    <span id="status-text">就绪</span>
+    <span class="spacer"></span>
+    <span id="status-right"></span>
+  </div>
+
+  <div id="modal-overlay" hidden>
+    <div id="modal" role="dialog" aria-modal="true"></div>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script src="ui.js"></script>
+  <script src="connections.js"></script>
+  <script src="files.js"></script>
+  <script src="ports.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
