@@ -549,9 +549,14 @@ tr:hover .copy-btn { opacity: 1; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
 .status-pill .sd { width: 7px; height: 7px; border-radius: 50%; }
 .status-pill.active .sd { background: var(--ok); box-shadow: 0 0 7px var(--ok); animation: pulse 2.4s infinite; }
-.status-pill.error .sd { background: var(--danger); }
-.status-pill.stopped .sd { background: var(--fg-dim); }
+.status-pill.error .sd { background: var(--danger); animation: pulse 1s infinite; }
+.status-pill.error { color: var(--warn); }
+.status-pill.stopped .sd, .status-pill.disconnected .sd { background: var(--fg-dim); }
+.status-pill.stopped, .status-pill.disconnected { color: var(--fg-muted); }
 .status-pill.starting .sd { background: var(--warn); animation: pulse 1s infinite; }
+.fwd-actions { display: flex; gap: 4px; white-space: nowrap; }
+.fwd-actions .ghost.small { padding: 3px 8px; font-size: 11.5px; }
+.fwd-actions .ghost.small .ic { width: 12px; height: 12px; }
 .fwd-traffic { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
 .fwd-traffic .t-up { color: var(--info); }
 .fwd-traffic .t-down { color: var(--ok); }

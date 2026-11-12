@@ -48,6 +48,8 @@ const api = {
   forward: {
     add: (id, def) => call('forward:add', id, def),
     stop: (id, fid) => call('forward:stop', id, fid),
+    restart: (id, fid) => call('forward:restart', id, fid),
+    remove: (id, fid) => call('forward:remove', id, fid),
     list: (id) => call('forward:list', id),
   },
   settings: {

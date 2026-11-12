@@ -55,6 +55,7 @@ class TestSshServer {
     this.server = null;
     this.port = 0;
     this._client = null;
+    this._clients = new Set();
     this._handles = new Map();
     this._handleSeq = 0;
     this._remoteBindings = new Map();
@@ -91,6 +92,8 @@ class TestSshServer {
   start(port = 0) {
     return new Promise((resolve, reject) => {
       this.server = new Server({ hostKeys: [this.hostPrivateKey] }, (client) => {
+        this._clients.add(client);
+        client.on('close', () => this._clients.delete(client));
         client.on('error', () => {});
         client.on('authentication', (ctx) => {
           if (ctx.username !== this.username) return ctx.reject(['password', 'publickey']);
@@ -326,10 +329,13 @@ class TestSshServer {
 
   stop() {
     return new Promise((resolve) => {
+      const finish = () => { clearTimeout(timer); resolve(); };
+      const timer = setTimeout(finish, 2000);
+      for (const c of this._clients) { try { c.end(); } catch {} }
       if (this._client) { try { this._client.end(); } catch {} }
       if (this.server) {
-        try { this.server.close(() => resolve()); } catch { resolve(); }
-      } else resolve();
+        try { this.server.close(finish); } catch { finish(); }
+      } else finish();
     });
   }
 }
@@ -337,11 +343,23 @@ class TestSshServer {
 // A tiny TCP echo server used as the "remote service" in forwarding tests.
 function startEchoServer() {
   return new Promise((resolve) => {
+    const sockets = new Set();
     const srv = net.createServer((socket) => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
       socket.on('data', (d) => socket.write(d));
       socket.on('error', () => {});
     });
-    srv.listen(0, '127.0.0.1', () => resolve({ server: srv, port: srv.address().port }));
+    srv.listen(0, '127.0.0.1', () => resolve({
+      server: srv,
+      port: srv.address().port,
+      // Close listener + any live tunnel connections so tests exit cleanly.
+      close() {
+        for (const s of sockets) { try { s.destroy(); } catch {} }
+        sockets.clear();
+        try { srv.close(); } catch {}
+      },
+    }));
   });
 }
 

@@ -111,6 +111,16 @@ app.whenReady().then(async () => {
   });
   check('UI-created forward tunnels end-to-end', tunnelOk);
 
+  // ---- forward lifecycle: stop keeps a disconnected row, start revives it ----
+  const fwdId = await exec(`window.api.forward.list('${connId}').then((l) => l[0] && l[0].id)`);
+  await exec(`App.ports.stop('${fwdId}')`);
+  await sleep(500);
+  check('stop keeps the row marked 断开', await exec(`document.querySelectorAll('#ports-body tr').length === 1 && document.querySelector('#ports-body tr .status-pill.stopped') !== null`));
+  check('disconnected row offers start + delete', await exec(`document.querySelectorAll('#ports-body tr .fwd-actions .ghost').length === 2`));
+  await exec(`App.ports.restart('${fwdId}')`);
+  await sleep(500);
+  check('start revives the forward as active', await exec(`document.querySelector('#ports-body tr .status-pill.active') !== null`));
+
   // ---- switching connections switches the workspace ----
   const conn2Id = await exec(`(async()=>{const s=await window.api.connections.save({host:'${info.host}',port:${info.port},username:'${info.username}',password:'${info.password}',name:'second-host'});await App.connections.refresh();return s.id;})()`);
   await exec(`App.connections.onItemClick('${conn2Id}')`);
@@ -150,6 +160,12 @@ app.whenReady().then(async () => {
   await exec(`App.setMini(false)`);
   await sleep(250);
   check('expand restores full UI', await exec(`!document.body.classList.contains('mini') && !document.getElementById('workspace').hidden`));
+
+  // ---- delete is the only operation that drops the record ----
+  await exec(`window.api.forward.remove('${connId}', '${fwdId}')`);
+  await exec(`App.ports.refresh()`);
+  await sleep(400);
+  check('delete removes the forward record', await exec(`document.querySelectorAll('#ports-body tr').length === 0 && !document.getElementById('ports-empty').hidden`));
 
   check('no renderer console errors', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('CONSOLE ERRORS:\n' + consoleErrors.join('\n'));

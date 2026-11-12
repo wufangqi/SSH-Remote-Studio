@@ -1,6 +1,6 @@
 {
   "name": "ssh-remote-studio",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Cross-platform SSH remote tool (Windows/macOS/Linux): open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
   "main": "src/main/main.js",
   "license": "MIT",

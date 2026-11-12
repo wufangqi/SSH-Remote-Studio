@@ -188,22 +188,30 @@ App.mini = {
       fwdWrap.append(el('div', { class: 'mini-empty-fw' }, t('mini.emptyForwards')));
     }
     const typeLetter = { local: 'L', remote: 'R', dynamic: 'D' };
-    const statusLabel = {
-      active: t('fwd.status.active'), starting: t('fwd.status.starting'),
-      error: t('fwd.status.error'), stopped: t('fwd.status.stopped'),
+    const statusText = (f) => {
+      if (f.status === 'active') return t('fwd.status.active');
+      if (f.status === 'starting') return t('fwd.status.starting');
+      if (f.status === 'error') return t('fwd.status.retrying', { n: Math.max(1, f.attempts || 1), max: f.maxAttempts || 5 });
+      return t('fwd.status.disconnected');
     };
     for (const f of fwds) {
       const r = mon.rates[(this.selId || '') + '/' + f.id] || { up: 0, down: 0 };
+      const btn = f.status === 'active'
+        ? el('button', {
+          class: 'icon-btn danger', title: t('mini.stop'),
+          onclick: () => this.stopForward(f.id),
+        }, icon('x'))
+        : el('button', {
+          class: 'icon-btn', title: t('fwd.restart.title'),
+          onclick: () => this.restartForward(f.id),
+        }, icon('refresh'));
       const card = el('div', { class: 'mini-fwd' },
         el('div', { class: 'mini-fwd-top' },
           el('span', { class: 'fwd-type ' + f.type }, typeLetter[f.type] || f.type),
           el('span', { class: 'mini-fwd-label', title: f.error || f.label }, f.label),
-          el('button', {
-            class: 'icon-btn danger', title: t('mini.stop'),
-            onclick: () => this.stopForward(f.id),
-          }, icon('x'))),
+          btn),
         el('div', { class: 'mini-fwd-bottom' },
-          el('span', { class: 'status-pill ' + f.status }, el('span', { class: 'sd' }), statusLabel[f.status] || f.status),
+          el('span', { class: 'status-pill ' + f.status, title: f.error || '' }, el('span', { class: 'sd' }), statusText(f)),
           el('span', { class: 'mini-fwd-rates' },
             el('span', { class: 't-up' }, `↑ ${fmtRate(r.up)}`), ' ',
             el('span', { class: 't-down' }, `↓ ${fmtRate(r.down)}`))),
@@ -238,6 +246,19 @@ App.mini = {
       if (App.state.activeId === this.selId) App.ports.refresh(this.selId);
     } catch (e) {
       App.toast(App.errMsg(e), { type: 'error', title: t('fwd.stopFailed') });
+    }
+  },
+
+  async restartForward(fid) {
+    if (!this.selId) return;
+    try {
+      const f = await window.api.forward.restart(this.selId, fid);
+      App.monitor.tick().catch(() => {});
+      if (App.state.activeId === this.selId) App.ports.refresh(this.selId);
+      if (f && f.status === 'active') App.toast(t('toast.fwdStarted', { label: f.label }), { type: 'success' });
+      else App.toast(t('toast.fwdFailed', { msg: (f && f.error) || '' }), { type: 'error', title: t('fwd.errorTitle') });
+    } catch (e) {
+      App.toast(App.errMsg(e), { type: 'error', title: t('fwd.startFailed') });
     }
   },
 

@@ -60,6 +60,8 @@ function registerIpc({ manager, store, getWindow, rebuildMenu }) {
   // ---- forwarding ----
   handle('forward:add', (id, def) => manager.addForward(id, def));
   handle('forward:stop', (id, fid) => manager.stopForward(id, fid));
+  handle('forward:restart', (id, fid) => manager.restartForward(id, fid));
+  handle('forward:remove', (id, fid) => manager.removeForward(id, fid));
   handle('forward:list', (id) => manager.listForwards(id));
 
   // ---- settings ----

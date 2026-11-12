@@ -24,16 +24,30 @@ App.ports = {
     $('#ports-table').hidden = forwards.length === 0;
 
     const typeLabel = { local: t('fwd.local'), remote: t('fwd.remote'), dynamic: t('fwd.dynamic') };
-    const statusLabel = {
-      active: t('fwd.status.active'), starting: t('fwd.status.starting'),
-      error: t('fwd.status.error'), stopped: t('fwd.status.stopped'),
+    const statusText = (f) => {
+      if (f.status === 'active') return t('fwd.status.active');
+      if (f.status === 'starting') return t('fwd.status.starting');
+      if (f.status === 'error') return t('fwd.status.retrying', { n: Math.max(1, f.attempts || 1), max: f.maxAttempts || 5 });
+      return t('fwd.status.disconnected');
     };
 
     for (const f of forwards) {
-      const stopBtn = el('button', {
-        class: 'ghost danger small', title: t('fwd.stop.title'),
-        onclick: () => this.stop(f.id),
-      }, icon('x'), t('fwd.stop'));
+      const actions = el('td', { class: 'fwd-actions' });
+      if (f.status === 'active') {
+        actions.append(el('button', {
+          class: 'ghost danger small', title: t('fwd.stop.title'),
+          onclick: () => this.stop(f.id),
+        }, icon('x'), t('fwd.stop')));
+      } else {
+        actions.append(el('button', {
+          class: 'ghost small', title: t('fwd.restart.title'),
+          onclick: () => this.restart(f.id),
+        }, icon('refresh'), t('fwd.restart')));
+        actions.append(el('button', {
+          class: 'ghost danger small', title: t('fwd.remove.title'),
+          onclick: () => this.remove(f.id),
+        }, icon('trash'), t('fwd.remove')));
+      }
       const copyBtn = el('button', {
         class: 'icon-btn copy-btn', title: t('ports.copy'),
         onclick: () => this.copyAddr(`${f.bindHost}:${f.bindPort}`),
@@ -42,14 +56,14 @@ App.ports = {
         el('td', {}, el('span', { class: 'fwd-type ' + f.type }, typeLabel[f.type] || f.type)),
         el('td', {}, el('span', { class: 'fwd-label', title: f.error || f.label }, f.label)),
         el('td', {}, el('span', { class: 'fwd-addr-wrap' }, el('span', { class: 'fwd-addr' }, `${f.bindHost}:${f.bindPort}`), copyBtn)),
-        el('td', {}, el('span', { class: 'status-pill ' + f.status }, el('span', { class: 'sd' }), statusLabel[f.status] || f.status)),
+        el('td', {}, el('span', { class: 'status-pill ' + f.status, title: f.error || '' }, el('span', { class: 'sd' }), statusText(f))),
         el('td', { class: 'mono' }, String(f.connections || 0)),
         el('td', {},
           el('div', { class: 'fwd-traffic' },
             el('span', { class: 't-up' }, `↑ ${fmtBytes(f.bytesUp || 0)}`), ' ',
             el('span', { class: 't-down' }, `↓ ${fmtBytes(f.bytesDown || 0)}`)),
           el('div', { class: 'fwd-rate', 'data-rate': f.id }, '')),
-        el('td', {}, stopBtn));
+        actions);
       body.append(tr);
     }
     this.updateLive();
@@ -106,6 +120,36 @@ App.ports = {
       App.toast(t('toast.fwdStopped'), { type: 'success', timeout: 2000 });
     } catch (e) {
       App.toast(App.errMsg(e), { type: 'error', title: t('fwd.stopFailed') });
+    }
+  },
+
+  async restart(fid) {
+    const id = App.state.activeId;
+    try {
+      const f = await window.api.forward.restart(id, fid);
+      await this.refresh(id);
+      if (f && f.status === 'active') App.toast(t('toast.fwdStarted', { label: f.label }), { type: 'success' });
+      else App.toast(t('toast.fwdFailed', { msg: (f && f.error) || '' }), { type: 'error', title: t('fwd.errorTitle') });
+    } catch (e) {
+      App.toast(App.errMsg(e), { type: 'error', title: t('fwd.startFailed') });
+    }
+  },
+
+  async remove(fid) {
+    const ok = await App.confirm({
+      title: t('fwd.remove.confirm.title'),
+      message: t('fwd.remove.confirm.msg'),
+      danger: true,
+      okLabel: t('fwd.remove'),
+    });
+    if (!ok) return;
+    const id = App.state.activeId;
+    try {
+      await window.api.forward.remove(id, fid);
+      await this.refresh(id);
+      App.toast(t('toast.fwdRemoved'), { type: 'success', timeout: 2000 });
+    } catch (e) {
+      App.toast(App.errMsg(e), { type: 'error', title: t('fwd.remove') });
     }
   },
 
@@ -173,8 +217,11 @@ App.ports = {
         const fwd = await window.api.forward.add(App.state.activeId, def);
         await this.refresh();
         close();
-        if (fwd.status === 'error') App.toast(fwd.error || t('fwd.startFailed'), { type: 'error', title: t('fwd.errorTitle') });
-        else App.toast(t('toast.fwdStarted', { label: fwd.label }), { type: 'success' });
+        if (fwd.status !== 'active') {
+          App.toast(t('toast.fwdFailed', { msg: fwd.error || '' }), { type: 'error', title: t('fwd.errorTitle'), timeout: 8000 });
+        } else {
+          App.toast(t('toast.fwdStarted', { label: fwd.label }), { type: 'success' });
+        }
       } catch (e) {
         errLine.textContent = App.errMsg(e);
       }

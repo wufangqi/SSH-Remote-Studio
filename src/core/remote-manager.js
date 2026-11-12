@@ -13,10 +13,17 @@ function serializeError(e) {
 }
 
 class RemoteManager extends EventEmitter {
-  constructor({ store = null, hostKeyPolicy = 'tofu' } = {}) {
+  /**
+   * @param {object} [opts]
+   * @param {object|null} [opts.store]
+   * @param {string} [opts.hostKeyPolicy]
+   * @param {{attempts?:number, delayMs?:number}} [opts.forwardRetry] bind-failure retry budget
+   */
+  constructor({ store = null, hostKeyPolicy = 'tofu', forwardRetry = null } = {}) {
     super();
     this.store = store;
     this.hostKeyPolicy = hostKeyPolicy;
+    this.forwardRetry = forwardRetry || {};
     this.sessions = new Map(); // id -> { session, sftp, forwards }
   }
 
@@ -26,7 +33,10 @@ class RemoteManager extends EventEmitter {
       hostKeyPolicy: this.hostKeyPolicy,
     });
     const sftp = new SftpService(session);
-    const forwards = new ForwardService(session);
+    const forwards = new ForwardService(session, {
+      maxAttempts: this.forwardRetry.attempts ?? 5,
+      retryDelayMs: this.forwardRetry.delayMs ?? 1000,
+    });
     const id = session.id;
     const entry = { session, sftp, forwards };
     this.sessions.set(id, entry);
@@ -100,10 +110,18 @@ class RemoteManager extends EventEmitter {
     this._persistForwardDef(id, def, fwd.id);
     return fwd;
   }
+  // Stop keeps the persisted definition (record survives, status disconnected).
   async stopForward(id, fid) {
-    const r = await this.require(id).forwards.stop(fid);
+    return this.require(id).forwards.stop(fid);
+  }
+  // Only an explicit remove drops the record and its persisted definition.
+  async removeForward(id, fid) {
+    const res = await this.require(id).forwards.remove(fid);
     if (this.store) this.store.setForwards(id, this.store.listForwards(id).filter((f) => f.id !== fid));
-    return r;
+    return res;
+  }
+  async restartForward(id, fid) {
+    return this.require(id).forwards.restart(fid);
   }
   listForwards(id) { return this.require(id).forwards.list(); }
 
@@ -121,8 +139,9 @@ class RemoteManager extends EventEmitter {
   }
 
   // Re-establish saved forwards after (re)connect. Runs in the background so
-  // a failing tunnel never blocks or fails the connection itself; failed
-  // definitions stay persisted for the next attempt.
+  // a failing tunnel never blocks or fails the connection itself. Records that
+  // already exist in the session (kept across a disconnect) are restarted
+  // under the same id instead of being duplicated.
   _restoreForwards(connId, entry) {
     if (!this.store || this.store.getSetting('restoreForwards', true) === false) return;
     const defs = this.store.listForwards(connId);
@@ -130,8 +149,8 @@ class RemoteManager extends EventEmitter {
     (async () => {
       for (const d of defs) {
         try {
-          const fwd = await entry.forwards.add(d);
-          this._persistForwardDef(connId, d, fwd.id, d.id);
+          if (entry.forwards.get(d.id)) await entry.forwards.restart(d.id);
+          else await entry.forwards.add(d);
         } catch { /* keep the definition persisted; error surfaced via events */ }
       }
     })();
