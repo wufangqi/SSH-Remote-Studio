@@ -7,7 +7,7 @@ const path = require('node:path');
 const { genId } = require('./util');
 
 const SECRET_FIELDS = ['password', 'passphrase', 'privateKey'];
-const DEFAULTS = { connections: [], knownHosts: {}, settings: {} };
+const DEFAULTS = { connections: [], knownHosts: {}, settings: {}, forwards: {} };
 
 class Store {
   constructor(dir, { cipher = null } = {}) {
@@ -47,8 +47,18 @@ class Store {
   _decryptSecret(value) {
     if (value == null) return undefined;
     if (typeof value === 'object' && value.__enc) {
-      if (!this.cipher) return undefined;
-      try { return this.cipher.decrypt(value.v); } catch { return undefined; }
+      if (!this.cipher) {
+        const err = new Error('无法解密已保存的凭据：当前运行环境未提供加密存储。请在连接设置中重新输入密码。');
+        err.code = 'EDECRYPT';
+        throw err;
+      }
+      try {
+        return this.cipher.decrypt(value.v);
+      } catch {
+        const err = new Error('无法解密已保存的凭据（运行环境或用户配置发生变化）。请在连接设置中重新输入密码。');
+        err.code = 'EDECRYPT';
+        throw err;
+      }
     }
     return value;
   }
@@ -107,6 +117,10 @@ class Store {
   deleteConnection(id) {
     const before = this.data.connections.length;
     this.data.connections = this.data.connections.filter((c) => c.id !== id);
+    if (this.data.forwards) delete this.data.forwards[id];
+    if (Array.isArray(this.data.settings.activeSessions)) {
+      this.data.settings.activeSessions = this.data.settings.activeSessions.filter((x) => x !== id);
+    }
     this._save();
     return before !== this.data.connections.length;
   }
@@ -126,6 +140,20 @@ class Store {
       get: (h, p) => this.getHostKey(h, p),
       set: (h, p, fp) => this.setHostKey(h, p, fp),
     };
+  }
+
+  // ---- persisted forward definitions (per connection) ----
+  // Saved as the user requested them (bindPort may be 0 = auto-assign) so a
+  // restart can re-establish the same tunnels.
+  listForwards(connId) {
+    return (this.data.forwards && this.data.forwards[connId]) || [];
+  }
+
+  setForwards(connId, list) {
+    if (!this.data.forwards) this.data.forwards = {};
+    if (list && list.length) this.data.forwards[connId] = list;
+    else delete this.data.forwards[connId];
+    this._save();
   }
 
   // ---- settings ----

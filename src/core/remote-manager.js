@@ -31,7 +31,10 @@ class RemoteManager extends EventEmitter {
     const entry = { session, sftp, forwards };
     this.sessions.set(id, entry);
 
-    session.on('state', (state) => this.emit('state', { id, state }));
+    session.on('state', (state) => {
+      this.emit('state', { id, state });
+      this._persistActiveSessions();
+    });
     // NB: use a non-special event name; emitting 'error' with no listener throws.
     session.on('error', (error) => this.emit('session-error', { id, error: serializeError(error) }));
     session.on('close', () => this.emit('close', { id }));
@@ -59,6 +62,7 @@ class RemoteManager extends EventEmitter {
     let entry = this.sessions.get(config.id);
     if (!entry) entry = this._createEntry(config);
     await entry.session.connect();
+    this._restoreForwards(config.id, entry);
     return entry.session.toJSON();
   }
 
@@ -91,9 +95,59 @@ class RemoteManager extends EventEmitter {
   exec(id, cmd) { return this.require(id).session.exec(cmd); }
 
   // ---- forwarding delegates ----
-  addForward(id, def) { return this.require(id).forwards.add(def); }
-  stopForward(id, fid) { return this.require(id).forwards.stop(fid); }
+  async addForward(id, def) {
+    const fwd = await this.require(id).forwards.add(def);
+    this._persistForwardDef(id, def, fwd.id);
+    return fwd;
+  }
+  async stopForward(id, fid) {
+    const r = await this.require(id).forwards.stop(fid);
+    if (this.store) this.store.setForwards(id, this.store.listForwards(id).filter((f) => f.id !== fid));
+    return r;
+  }
   listForwards(id) { return this.require(id).forwards.list(); }
+
+  // Persist the requested definition (not the resolved ephemeral port) so it
+  // can be re-established after a restart.
+  _persistForwardDef(connId, def, fwdId, oldId) {
+    if (!this.store) return;
+    const list = this.store.listForwards(connId).filter((f) => f.id !== fwdId && f.id !== oldId);
+    list.push({
+      id: fwdId, type: def.type,
+      bindHost: def.bindHost || '127.0.0.1', bindPort: def.bindPort,
+      destHost: def.destHost, destPort: def.destPort,
+    });
+    this.store.setForwards(connId, list);
+  }
+
+  // Re-establish saved forwards after (re)connect. Runs in the background so
+  // a failing tunnel never blocks or fails the connection itself; failed
+  // definitions stay persisted for the next attempt.
+  _restoreForwards(connId, entry) {
+    if (!this.store || this.store.getSetting('restoreForwards', true) === false) return;
+    const defs = this.store.listForwards(connId);
+    if (!defs.length) return;
+    (async () => {
+      for (const d of defs) {
+        try {
+          const fwd = await entry.forwards.add(d);
+          this._persistForwardDef(connId, d, fwd.id, d.id);
+        } catch { /* keep the definition persisted; error surfaced via events */ }
+      }
+    })();
+  }
+
+  // Snapshot of sessions to auto-reconnect on next launch. Includes sessions
+  // still 'connecting' so a restart mid-handshake doesn't drop the snapshot
+  // (and the renderer's workspace-resume can still see it). Skipped during
+  // shutdown so the snapshot survives for the restart.
+  _persistActiveSessions() {
+    if (!this.store || this._shuttingDown) return;
+    const ids = [...this.sessions.values()]
+      .filter((e) => e.session.state === 'connected' || e.session.state === 'connecting')
+      .map((e) => e.session.id);
+    this.store.setSetting('activeSessions', ids);
+  }
 
   // ---- persistence delegates ----
   listConnections() { return this.store ? this.store.listConnections() : []; }
@@ -101,10 +155,15 @@ class RemoteManager extends EventEmitter {
   deleteConnection(id) {
     const entry = this.sessions.get(id);
     if (entry) { entry.session.destroy(); entry.forwards.destroy(); this.sessions.delete(id); }
+    if (this.store) {
+      this.store.setForwards(id, []);
+      this._persistActiveSessions();
+    }
     return this.store ? this.store.deleteConnection(id) : false;
   }
 
   async destroy() {
+    this._shuttingDown = true;
     for (const entry of this.sessions.values()) {
       entry.forwards.destroy();
       entry.session.destroy();

@@ -23,24 +23,79 @@ App.ports = {
     $('#ports-empty').hidden = forwards.length > 0;
     $('#ports-table').hidden = forwards.length === 0;
 
-    const typeLabel = { local: '本地 -L', remote: '远程 -R', dynamic: 'SOCKS -D' };
-    const statusLabel = { active: '运行中', starting: '启动中', error: '错误', stopped: '已停止' };
+    const typeLabel = { local: t('fwd.local'), remote: t('fwd.remote'), dynamic: t('fwd.dynamic') };
+    const statusLabel = {
+      active: t('fwd.status.active'), starting: t('fwd.status.starting'),
+      error: t('fwd.status.error'), stopped: t('fwd.status.stopped'),
+    };
 
     for (const f of forwards) {
       const stopBtn = el('button', {
-        class: 'ghost danger', title: '停止转发',
+        class: 'ghost danger small', title: t('fwd.stop.title'),
         onclick: () => this.stop(f.id),
-      }, '停止');
-      const tr = el('tr', {},
+      }, icon('x'), t('fwd.stop'));
+      const copyBtn = el('button', {
+        class: 'icon-btn copy-btn', title: t('ports.copy'),
+        onclick: () => this.copyAddr(`${f.bindHost}:${f.bindPort}`),
+      }, icon('copy'));
+      const tr = el('tr', { 'data-fid': f.id },
         el('td', {}, el('span', { class: 'fwd-type ' + f.type }, typeLabel[f.type] || f.type)),
-        el('td', {}, el('span', { class: 'fwd-label', title: f.error || '' }, f.label)),
-        el('td', {}, el('span', { class: 'fwd-addr' }, `${f.bindHost}:${f.bindPort}`)),
+        el('td', {}, el('span', { class: 'fwd-label', title: f.error || f.label }, f.label)),
+        el('td', {}, el('span', { class: 'fwd-addr-wrap' }, el('span', { class: 'fwd-addr' }, `${f.bindHost}:${f.bindPort}`), copyBtn)),
         el('td', {}, el('span', { class: 'status-pill ' + f.status }, el('span', { class: 'sd' }), statusLabel[f.status] || f.status)),
-        el('td', {}, String(f.connections || 0)),
-        el('td', { class: 'muted' }, `${fmtBytes(f.bytesUp || 0)} ↑ / ${fmtBytes(f.bytesDown || 0)} ↓`),
+        el('td', { class: 'mono' }, String(f.connections || 0)),
+        el('td', {},
+          el('div', { class: 'fwd-traffic' },
+            el('span', { class: 't-up' }, `↑ ${fmtBytes(f.bytesUp || 0)}`), ' ',
+            el('span', { class: 't-down' }, `↓ ${fmtBytes(f.bytesDown || 0)}`)),
+          el('div', { class: 'fwd-rate', 'data-rate': f.id }, '')),
         el('td', {}, stopBtn));
       body.append(tr);
     }
+    this.updateLive();
+  },
+
+  // Targeted per-second traffic/rate refresh without rebuilding rows.
+  updateLive() {
+    if ($('#view-ports').hidden) return;
+    const mon = App.monitor;
+    if (!mon) return;
+    const sid = App.state.activeId;
+    for (const f of App.state.forwards) {
+      const row = $(`#ports-body tr[data-fid="${CSS.escape(f.id)}"]`);
+      if (!row) continue;
+      const traffic = row.querySelector('.fwd-traffic');
+      if (traffic) {
+        traffic.innerHTML = '';
+        traffic.append(
+          el('span', { class: 't-up' }, `↑ ${fmtBytes(f.bytesUp || 0)}`), ' ',
+          el('span', { class: 't-down' }, `↓ ${fmtBytes(f.bytesDown || 0)}`));
+      }
+      const rateEl = row.querySelector('.fwd-rate');
+      const r = mon.rates[(sid || '') + '/' + f.id];
+      if (rateEl) {
+        rateEl.textContent = (f.status === 'active' && r)
+          ? `↑ ${fmtRate(r.up)}  ↓ ${fmtRate(r.down)}`
+          : '';
+      }
+    }
+  },
+
+  async copyAddr(addr) {
+    try {
+      let ok = false;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        try { await navigator.clipboard.writeText(addr); ok = true; } catch { /* fall through */ }
+      }
+      if (!ok) {
+        const ta = el('textarea', { style: 'position:fixed;opacity:0' }, addr);
+        document.body.append(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      }
+      if (ok) App.toast(t('ports.copied'), { type: 'success', timeout: 1600 });
+    } catch { /* clipboard unavailable — non-fatal */ }
   },
 
   async stop(fid) {
@@ -48,18 +103,18 @@ App.ports = {
     try {
       await window.api.forward.stop(id, fid);
       await this.refresh(id);
-      App.toast('转发已停止', { type: 'success', timeout: 2000 });
+      App.toast(t('toast.fwdStopped'), { type: 'success', timeout: 2000 });
     } catch (e) {
-      App.toast(e.message, { type: 'error', title: '停止失败' });
+      App.toast(App.errMsg(e), { type: 'error', title: t('fwd.stopFailed') });
     }
   },
 
   openForm() {
-    if (!App.state.activeId) { App.toast('请先连接一个主机', { type: 'warn' }); return; }
+    if (!App.state.activeId) { App.toast(t('fwd.needConn'), { type: 'warn' }); return; }
     const types = {
-      local: { name: '本地 -L', hint: '把本地端口的流量转发到远程可达的目标服务。例如本地 8080 → 远程数据库 127.0.0.1:5432。' },
-      remote: { name: '远程 -R', hint: '把远程主机上的端口转发回本地目标服务。远程访问该端口即访问你本地的服务。' },
-      dynamic: { name: '动态 -D', hint: '在本地启动一个 SOCKS5 代理，浏览器/应用通过它经 SSH 隧道访问远程网络。' },
+      local: { name: t('fwd.local'), hint: t('fwd.local.hint') },
+      remote: { name: t('fwd.remote'), hint: t('fwd.remote.hint') },
+      dynamic: { name: t('fwd.dynamic'), hint: t('fwd.dynamic.hint') },
     };
     let curType = 'local';
 
@@ -69,36 +124,36 @@ App.ports = {
     const destPort = el('input', { type: 'number', value: '80', min: '1', max: '65535' });
     const hint = el('div', { class: 'field-hint' }, types.local.hint);
 
-    const destHostField = el('div', { class: 'field' }, el('label', {}, '目标主机'), destHost);
-    const destPortField = el('div', { class: 'field' }, el('label', {}, '目标端口'), destPort);
+    const destHostField = el('div', { class: 'field' }, el('label', {}, t('fwd.destHost')), destHost);
+    const destPortField = el('div', { class: 'field' }, el('label', {}, t('fwd.destPort')), destPort);
     const destRow = el('div', { class: 'field-row' }, destHostField, destPortField);
 
     const radioRow = el('div', { class: 'radio-row' });
     const radios = {};
-    const selectType = (t) => {
-      curType = t;
-      hint.textContent = types[t].hint;
-      const isDyn = t === 'dynamic';
+    const selectType = (tp) => {
+      curType = tp;
+      hint.textContent = types[tp].hint;
+      const isDyn = tp === 'dynamic';
       destRow.hidden = isDyn;
-      bindPort.value = isDyn ? '1080' : (t === 'remote' ? '8080' : '8080');
-      for (const k of Object.keys(radios)) radios[k].classList.toggle('checked', k === t);
+      bindPort.value = isDyn ? '1080' : '8080';
+      for (const k of Object.keys(radios)) radios[k].classList.toggle('checked', k === tp);
     };
-    for (const t of ['local', 'remote', 'dynamic']) {
-      const lbl = el('label', {}, types[t].name);
-      radios[t] = lbl;
-      lbl.addEventListener('click', () => selectType(t));
+    for (const tp of ['local', 'remote', 'dynamic']) {
+      const lbl = el('label', {}, types[tp].name);
+      radios[tp] = lbl;
+      lbl.addEventListener('click', () => selectType(tp));
       radioRow.append(lbl);
     }
 
     const errLine = el('div', { class: 'form-error' });
     const body = el('div', {},
-      el('div', { class: 'field' }, el('label', {}, '转发类型'), radioRow),
+      el('div', { class: 'field' }, el('label', {}, t('fwd.type')), radioRow),
       hint,
       el('div', { class: 'field-row', style: 'margin-top:12px' },
-        el('div', { class: 'field', style: 'flex:2' }, el('label', {}, '监听地址'), bindHost),
-        el('div', { class: 'field' }, el('label', {}, '监听端口'), bindPort)),
+        el('div', { class: 'field', style: 'flex:2' }, el('label', {}, t('fwd.bindHost')), bindHost),
+        el('div', { class: 'field' }, el('label', {}, t('fwd.bindPort')), bindPort)),
       destRow,
-      el('div', { class: 'field-hint' }, '监听端口填 0 表示自动分配可用端口。'),
+      el('div', { class: 'field-hint' }, t('fwd.autoPort')),
       errLine);
     selectType('local');
 
@@ -111,27 +166,27 @@ App.ports = {
       if (curType !== 'dynamic') {
         def.destHost = destHost.value.trim() || '127.0.0.1';
         def.destPort = Number(destPort.value);
-        if (!def.destPort) { errLine.textContent = '请填写目标端口'; return; }
+        if (!def.destPort) { errLine.textContent = t('err.destPort'); return; }
       }
-      if (Number.isNaN(def.bindPort)) { errLine.textContent = '请填写有效的监听端口'; return; }
+      if (Number.isNaN(def.bindPort)) { errLine.textContent = t('err.bindPort'); return; }
       try {
         const fwd = await window.api.forward.add(App.state.activeId, def);
         await this.refresh();
         close();
-        if (fwd.status === 'error') App.toast(fwd.error || '转发启动失败', { type: 'error', title: '转发' });
-        else App.toast(`转发已启动：${fwd.label}`, { type: 'success' });
+        if (fwd.status === 'error') App.toast(fwd.error || t('fwd.startFailed'), { type: 'error', title: t('fwd.errorTitle') });
+        else App.toast(t('toast.fwdStarted', { label: fwd.label }), { type: 'success' });
       } catch (e) {
-        errLine.textContent = e.message || String(e);
+        errLine.textContent = App.errMsg(e);
       }
     };
 
     App.modal({
-      title: '转发端口',
+      title: t('fwd.title'),
       body,
       width: 480,
       buttons: [
-        { label: '取消', class: 'ghost', onClick: (close) => close() },
-        { label: '转发', class: 'primary', onClick: (close) => submit(close) },
+        { label: t('cancel'), class: 'ghost', onClick: (close) => close() },
+        { label: t('fwd.submit'), class: 'primary', onClick: (close) => submit(close) },
       ],
     });
   },

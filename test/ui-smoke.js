@@ -20,6 +20,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-gpu');
 app.commandLine.appendSwitch('disable-dev-shm-usage');
+// Running a bare script makes app.getVersion() fall back to the Electron
+// version; pin the real app version so artifacts match the shipped app.
+app.setVersion(require('../package.json').version);
 
 app.whenReady().then(async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'srs-smoke-root-'));
@@ -55,16 +58,23 @@ app.whenReady().then(async () => {
   await win.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
   const exec = (js) => win.webContents.executeJavaScript(js, true);
   const shot = async (name) => {
-    const img = await win.webContents.capturePage();
-    const out = path.join(__dirname, '..', 'build', name);
-    fs.writeFileSync(out, img.toPNG());
-    console.log('screenshot ->', out);
+    try {
+      const img = await win.webContents.capturePage();
+      const out = path.join(__dirname, '..', 'build', name);
+      fs.writeFileSync(out, img.toPNG());
+      console.log('screenshot ->', out);
+    } catch (e) {
+      // Best-effort artifact: no display surface (locked/headless desktop)
+      // must not fail the functional assertions.
+      console.log('screenshot skipped:', name, '(' + e.message + ')');
+    }
   };
 
   // wait for renderer boot
   const booted = await exec(`new Promise((r)=>{const t=setInterval(()=>{if(window.App&&App.state.appInfo){clearInterval(t);r(true);}},50);setTimeout(()=>{clearInterval(t);r(false);},8000);})`);
   check('renderer booted (window.api + App)', booted && await exec(`!!window.api && !!window.App`));
   check('app info has version', await exec(`!!(App.state.appInfo && App.state.appInfo.version)`));
+  await sleep(700); // let entrance animations settle before capturing
   await shot('screenshot-welcome.png');
 
   // create + connect through the real UI layer
@@ -100,6 +110,46 @@ app.whenReady().then(async () => {
     s.on('error', () => { clearTimeout(t); res(false); });
   });
   check('UI-created forward tunnels end-to-end', tunnelOk);
+
+  // ---- switching connections switches the workspace ----
+  const conn2Id = await exec(`(async()=>{const s=await window.api.connections.save({host:'${info.host}',port:${info.port},username:'${info.username}',password:'${info.password}',name:'second-host'});await App.connections.refresh();return s.id;})()`);
+  await exec(`App.connections.onItemClick('${conn2Id}')`);
+  await sleep(500);
+  check('clicking a second connection activates it', await exec(`App.state.activeId === '${conn2Id}'`));
+  check('ports panel switches to the new session (empty)', await exec(`document.querySelectorAll('#ports-body tr').length === 0 && !document.getElementById('ports-empty').hidden`));
+  check('file tree reloaded for the new session', await exec(`Array.from(document.querySelectorAll('#tree .tname')).some(n => n.textContent === 'hello.txt')`));
+  await exec(`App.connections.onItemClick('${connId}')`);
+  await sleep(500);
+  check('switching back restores the first session forwards', await exec(`App.state.activeId === '${connId}' && document.querySelectorAll('#ports-body tr').length >= 1`));
+
+  // ---- theme switching ----
+  await exec(`App.setTheme('daylight')`);
+  check('theme switch applies', await exec(`document.documentElement.dataset.theme === 'daylight'`));
+  check('theme persisted to store', await exec(`window.api.settings.get('ui.theme').then(v => v === 'daylight')`));
+  await exec(`App.setTheme('phosphor')`);
+  check('second theme applies', await exec(`document.documentElement.dataset.theme === 'phosphor'`));
+  await exec(`App.setTheme('midnight')`);
+
+  // ---- language switching ----
+  await exec(`App.setLang('en')`);
+  check('language switch applies (EN)', await exec(`document.querySelector('.tab[data-tab="files"]').textContent.includes('Files')`));
+  check('language persisted to store', await exec(`window.api.settings.get('ui.lang').then(v => v === 'en')`));
+  await exec(`App.setLang('zh')`);
+  check('language switch back (ZH)', await exec(`document.querySelector('.tab[data-tab="files"]').textContent.includes('文件')`));
+
+  // ---- mini mode (compact tunnel monitor) ----
+  await exec(`App.setMini(true)`);
+  await sleep(350);
+  check('mini mode activates', await exec(`document.body.classList.contains('mini') && !document.getElementById('mini').hidden`));
+  check('mini shows live session', await exec(`document.querySelectorAll('#mini-sessions .mini-conn').length >= 1`));
+  check('mini shows forward card', await exec(`document.querySelectorAll('#mini-forwards .mini-fwd').length >= 1`));
+  check('mini window state reported', await exec(`window.api.window.state().then(s => s.mini === true)`));
+  check('mini sparkline drawn', await exec(`(() => { const c = document.getElementById('mini-spark'); return c.width > 0 && c.height > 0; })()`));
+  await sleep(1100); // one monitor tick so rates are visible in the artifact
+  await shot('screenshot-mini.png');
+  await exec(`App.setMini(false)`);
+  await sleep(250);
+  check('expand restores full UI', await exec(`!document.body.classList.contains('mini') && !document.getElementById('workspace').hidden`));
 
   check('no renderer console errors', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('CONSOLE ERRORS:\n' + consoleErrors.join('\n'));

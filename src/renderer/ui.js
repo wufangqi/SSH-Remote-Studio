@@ -1,6 +1,19 @@
 'use strict';
 // Shared renderer state, DOM helpers, toasts and modals. Classic script;
-// everything hangs off window.App. Loaded first.
+// everything hangs off window.App. Loaded after i18n.js.
+
+// Apply the cached theme before first paint to avoid a flash; app.js boot
+// reconciles with the persisted store setting afterwards.
+(function () {
+  const THEMES = ['midnight', 'daylight', 'phosphor', 'nebula'];
+  let th = 'midnight';
+  try {
+    const saved = localStorage.getItem('srs.theme');
+    if (THEMES.includes(saved)) th = saved;
+  } catch { /* storage unavailable */ }
+  document.documentElement.dataset.theme = th;
+})();
+
 window.App = {
   state: {
     connections: [],
@@ -12,6 +25,7 @@ window.App = {
     forwards: [],
     appInfo: null,
   },
+  ui: { theme: document.documentElement.dataset.theme || 'midnight', mini: false, pinned: true },
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -32,6 +46,18 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+// Inline SVG icon from the sprite in index.html.
+function icon(name, cls = '') {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'ic' + (cls ? ' ' + cls : ''));
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS(NS, 'use');
+  use.setAttribute('href', '#i-' + name);
+  svg.append(use);
+  return svg;
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -44,6 +70,8 @@ function fmtBytes(n) {
   return `${i === 0 ? v : v.toFixed(1)} ${u[i]}`;
 }
 
+function fmtRate(n) { return fmtBytes(Math.max(0, Math.round(n || 0))) + '/s'; }
+
 function fmtTime(ms) {
   if (!ms) return '';
   const d = new Date(ms);
@@ -51,19 +79,44 @@ function fmtTime(ms) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-App.setStatus = (text) => { $('#status-text').textContent = text; };
+// Translate known core error codes; fall back to the raw message.
+App.errMsg = (e) => {
+  if (!e) return '';
+  if (e.code && hasText('err.' + e.code)) return t('err.' + e.code);
+  return e.message || String(e);
+};
+
+App.setStatus = (text) => {
+  $('#status-text').textContent = text === undefined ? t('status.ready') : text;
+  const dot = $('#status-dot');
+  if (dot) {
+    const busy = /…|\.\.\.$/.test(String(text));
+    dot.className = 'status-dot' + (busy ? ' busy' : '');
+  }
+};
 App.setStatusRight = (text) => { $('#status-right').textContent = text; };
 
+const TOAST_ICONS = { info: 'info', success: 'check-circle', warn: 'alert', error: 'x-circle' };
 App.toast = (msg, { type = 'info', title = '', timeout = 4200 } = {}) => {
-  const node = el('div', { class: `toast ${type}` },
-    title ? el('div', { class: 't-title' }, title) : null,
-    el('div', { class: 't-msg' }, msg));
-  $('#toasts').append(node);
-  setTimeout(() => {
-    node.style.transition = 'opacity .25s';
+  const wrap = $('#toasts');
+  while (wrap.children.length >= 5) wrap.firstChild.remove();
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    node.style.transition = 'opacity .22s, transform .22s';
     node.style.opacity = '0';
-    setTimeout(() => node.remove(), 260);
-  }, timeout);
+    node.style.transform = 'translateX(16px)';
+    setTimeout(() => node.remove(), 240);
+  };
+  const node = el('div', { class: `toast ${type}`, style: `--toast-life:${timeout}ms`, role: 'status' },
+    icon(TOAST_ICONS[type] || 'info', 'toast-ic'),
+    el('div', { class: 'toast-body' },
+      title ? el('div', { class: 't-title' }, title) : null,
+      el('div', { class: 't-msg' }, msg)),
+    el('button', { class: 'toast-x', 'aria-label': 'close', onclick: dismiss }, icon('x')));
+  wrap.append(node);
+  setTimeout(dismiss, timeout);
 };
 
 // Generic modal. body is an HTMLElement. buttons: [{label, class, onClick(close)}].
@@ -106,22 +159,22 @@ App.prompt = ({ title, label, value = '', placeholder = '', hint = '' }) => new 
   const m = App.modal({
     title, body,
     buttons: [
-      { label: '取消', class: 'ghost', onClick: (close) => { finish(null); close(); } },
-      { label: '确定', class: 'primary', onClick: (close) => { finish(input.value); close(); } },
+      { label: t('cancel'), class: 'ghost', onClick: (close) => { finish(null); close(); } },
+      { label: t('ok'), class: 'primary', onClick: (close) => { finish(input.value); close(); } },
     ],
   });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { finish(input.value); m.close(); } });
 });
 
-App.confirm = ({ title, message, danger = false, okLabel = '确定' }) => new Promise((resolve) => {
+App.confirm = ({ title, message, danger = false, okLabel }) => new Promise((resolve) => {
   let done = false;
   const finish = (v) => { if (!done) { done = true; resolve(v); } };
-  const m = App.modal({
+  App.modal({
     title,
     body: el('div', { class: 'muted', style: 'line-height:1.6' }, message),
     buttons: [
-      { label: '取消', class: 'ghost', onClick: (close) => { finish(false); close(); } },
-      { label: okLabel, class: danger ? 'ghost danger' : 'primary', onClick: (close) => { finish(true); close(); } },
+      { label: t('cancel'), class: 'ghost', onClick: (close) => { finish(false); close(); } },
+      { label: okLabel || t('ok'), class: danger ? 'ghost danger' : 'primary', onClick: (close) => { finish(true); close(); } },
     ],
   });
 });
@@ -131,11 +184,11 @@ App.guard = async (label, fn) => {
   try {
     App.setStatus(label + '…');
     const r = await fn();
-    App.setStatus('就绪');
+    App.setStatus();
     return r;
   } catch (e) {
-    App.setStatus('就绪');
-    App.toast(e.message || String(e), { type: 'error', title: label + '失败' });
+    App.setStatus();
+    App.toast(App.errMsg(e), { type: 'error', title: t('guard.failed', { label }) });
     throw e;
   }
 };

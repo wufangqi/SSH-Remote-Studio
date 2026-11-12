@@ -294,3 +294,120 @@ describe('SSH Remote Studio core integration', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('forward persistence and restart restore', () => {
+  let server, info, root, storeDir;
+  const CONN = 'persist-conn';
+
+  before(async () => {
+    root = tmpRoot();
+    storeDir = tmpRoot();
+    server = new TestSshServer({ root });
+    info = await server.start(0);
+  });
+  after(async () => {
+    if (server) await server.stop();
+    for (const d of [root, storeDir]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} }
+  });
+
+  const cfg = () => ({ id: CONN, host: info.host, port: info.port, username: info.username, password: info.password });
+
+  it('persists forward definitions on add and removes them on stop', async () => {
+    const store = new Store(storeDir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    await m.connect(cfg());
+    const echo = await startEchoServer();
+    const fwd = await m.addForward(CONN, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+    const saved = store.listForwards(CONN);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].id, fwd.id);
+    assert.equal(saved[0].bindPort, 0); // requested (auto) port is what persists
+    assert.equal(saved[0].destPort, echo.port);
+    await m.stopForward(CONN, fwd.id);
+    assert.equal(store.listForwards(CONN).length, 0);
+    echo.server.close();
+    await m.destroy();
+  });
+
+  it('restores saved forwards on reconnect and the tunnel actually works', async () => {
+    const store1 = new Store(storeDir);
+    const m1 = new RemoteManager({ store: store1, hostKeyPolicy: 'accept' });
+    await m1.connect(cfg());
+    const echo = await startEchoServer();
+    await m1.addForward(CONN, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+    assert.deepEqual(store1.getSetting('activeSessions', []), [CONN]);
+    await m1.destroy(); // shutdown must NOT clear the resume snapshot
+
+    // Simulate a process restart: fresh Store + manager reading the same disk.
+    const store2 = new Store(storeDir);
+    assert.deepEqual(store2.getSetting('activeSessions', []), [CONN]);
+    assert.equal(store2.listForwards(CONN).length, 1);
+    const m2 = new RemoteManager({ store: store2, hostKeyPolicy: 'accept' });
+    await m2.connect(cfg());
+    await new Promise((r) => setTimeout(r, 500)); // restore runs in background
+    const fwds = m2.listForwards(CONN);
+    assert.equal(fwds.length, 1);
+    assert.equal(fwds[0].status, 'active');
+    const reply = await tcpEcho(fwds[0].bindPort, 'restored-tunnel');
+    assert.equal(reply.toString(), 'restored-tunnel');
+    // persisted id swapped to the new live forward
+    assert.equal(store2.listForwards(CONN)[0].id, fwds[0].id);
+    echo.server.close();
+    await m2.destroy();
+  });
+
+  it('respects restoreForwards=false', async () => {
+    const store = new Store(storeDir);
+    store.setSetting('restoreForwards', false);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    await m.connect(cfg());
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(m.listForwards(CONN).length, 0);
+    assert.equal(store.listForwards(CONN).length, 1); // definition kept for later
+    await m.destroy();
+    store.setSetting('restoreForwards', true);
+  });
+
+  it('deleting a connection clears its saved forwards and resume entry', async () => {
+    const store = new Store(storeDir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    await m.connect(cfg());
+    const echo = await startEchoServer();
+    await m.addForward(CONN, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+    store.saveConnection(cfg());
+    m.deleteConnection(CONN);
+    assert.equal(store.listForwards(CONN).length, 0);
+    assert.ok(!store.getSetting('activeSessions', []).includes(CONN));
+    echo.server.close();
+    await m.destroy();
+  });
+
+  it('restart restore works with encrypted credentials (real cipher round-trip)', async () => {
+    const dir = tmpRoot();
+    const cipher = {
+      encrypt: (s) => Buffer.from(s, 'utf8').toString('base64'),
+      decrypt: (s) => Buffer.from(s, 'base64').toString('utf8'),
+    };
+    const store1 = new Store(dir, { cipher });
+    store1.saveConnection(cfg()); // persist WITH encrypted password
+    const m1 = new RemoteManager({ store: store1, hostKeyPolicy: 'accept' });
+    await m1.connect(CONN);
+    const echo = await startEchoServer();
+    await m1.addForward(CONN, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+    await m1.destroy();
+
+    // Fresh process semantics: new Store reads encrypted secret from disk.
+    const store2 = new Store(dir, { cipher });
+    const m2 = new RemoteManager({ store: store2, hostKeyPolicy: 'accept' });
+    await m2.connect(CONN); // must decrypt the persisted password to auth
+    await new Promise((r) => setTimeout(r, 400));
+    const fwds = m2.listForwards(CONN);
+    assert.equal(fwds.length, 1);
+    assert.equal(fwds[0].status, 'active');
+    const reply = await tcpEcho(fwds[0].bindPort, 'encrypted-restore');
+    assert.equal(reply.toString(), 'encrypted-restore');
+    echo.server.close();
+    await m2.destroy();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});

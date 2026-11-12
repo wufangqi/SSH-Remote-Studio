@@ -6,6 +6,7 @@
 
 ![文件浏览与编辑](build/screenshot-files.png)
 ![端口转发面板](build/screenshot-ports.png)
+![小窗隧道监控](build/screenshot-mini.png)
 
 ---
 
@@ -23,6 +24,11 @@
   - 密码/私钥口令用系统加密存储（Windows DPAPI / macOS Keychain / Linux libsecret，经 Electron `safeStorage`）。
   - 渲染层 `contextIsolation` 开启、`nodeIntegration` 关闭，仅暴露白名单 `window.api`。
   - 配置列表接口**不回传明文密钥**。
+- **个性化**：
+  - **4 套主题**：午夜终端（默认）/ 日光纸白 / 复古荧光 / 星云紫，顶栏一键切换并持久化。
+  - **中 / 英双语**：界面全量国际化（含菜单与错误提示），顶栏切换并持久化。
+- **小窗模式（隧道监控）**：`Ctrl+M` 或顶栏按钮把窗口收成一个置顶小窗——实时显示活动会话、每条转发的状态 / 连接数 / 上下行速率与累计流量、聚合吞吐趋势图，支持快速连接、断开会话、停止转发；一键展开回主窗口。
+- **多会话与持久化**：左侧切换会话即切换右侧文件树 / 编辑器 / 转发面板（未保存修改会先确认）；转发定义随连接保存，重启后自动重连上次的会话并恢复全部监听（端口面板可开关「启动时恢复」）。
 
 ## 目录结构
 
@@ -36,16 +42,19 @@ src/
     remote-manager.js  # 会话聚合门面（IPC 的唯一对接面）
     util.js
   main/            # Electron 主进程
-    main.js            # 窗口/菜单/单实例/safeStorage
-    ipc.js             # IPC 处理器 + 事件推送
+    main.js            # 窗口/菜单（双语）/单实例/safeStorage
+    ipc.js             # IPC 处理器 + 事件推送 + 小窗窗口管理
     preload.js         # 安全桥接 window.api
+    safe-storage.js    # 系统加密存储适配
   renderer/        # 渲染层 UI（原生 JS）
-    index.html / styles.css
+    index.html / styles.css   # 4 主题设计系统（CSS 变量）
+    i18n.js            # 中/英字典与 data-i18n 应用
     ui.js / connections.js / files.js / ports.js / app.js
+    mini.js            # 小窗「隧道监控」+ 每秒流量监控引擎
 test/
   test-server.js       # 进程内测试 SSH 服务（ssh2.Server + fs 后端 SFTP + 转发）
-  integration.test.js  # 11 项核心集成测试
-  ui-smoke.js          # 13 项端到端 UI 冒烟测试（真实 UI+IPC+核心+SSH）
+  integration.test.js  # 16 项核心集成测试（含转发持久化与重启恢复）
+  ui-smoke.js          # 29 项端到端 UI 冒烟测试（真实 UI+IPC+核心+SSH，含主题/语言/小窗/多会话切换）
 scripts/
   make-icon.py         # 生成图标（Pillow）
   build-win.sh         # 本机交叉构建 Windows 安装包
@@ -70,7 +79,7 @@ npm run smoke          # 端到端 UI 冒烟（有桌面环境）
 ```
 
 核心测试覆盖：密码/密钥认证、错误密码拒绝、exec、SFTP 增删改查/二进制检测/大小保护/上传下载、**本地/动态/远程三种转发端到端**、TOFU 主机密钥、存储加密不泄漏。
-UI 冒烟覆盖：真实渲染层启动 → 连接 → 目录树 → 打开/编辑/保存远程文件 → 添加转发 → **转发真实隧道连通** → 零控制台错误，并输出截图到 `build/`。
+UI 冒烟覆盖：真实渲染层启动 → 连接 → 目录树 → 打开/编辑/保存远程文件 → 添加转发 → **转发真实隧道连通** → **主题切换与持久化** → **中英文切换与持久化** → **小窗模式（会话/转发卡片、窗口状态、趋势图）与展开还原** → 零控制台错误，并输出截图到 `build/`（无显示表面时截图自动跳过，不影响断言）。
 
 ## Windows 打包
 
@@ -81,7 +90,7 @@ npm install
 npm run dist:win       # NSIS 安装包 + 便携版到 release/
 ```
 
-产物：`release/SSH Remote Studio-0.1.0-x64.exe`（NSIS 安装包，可选安装目录、创建桌面/开始菜单快捷方式）。
+产物：`release/SSH Remote Studio-0.2.1-x64.exe`（NSIS 安装包，可选安装目录、创建桌面/开始菜单快捷方式）。
 
 **在 Linux 上交叉构建（本仓库已验证，无需 wine）：**
 
@@ -89,7 +98,7 @@ npm run dist:win       # NSIS 安装包 + 便携版到 release/
 bash scripts/build-win.sh      # 等价于 npm run dist:win:zip
 ```
 
-产物：`release/SSH Remote Studio-0.1.0-x64.zip`（**完整便携版**，解压后运行其中的 `SSH Remote Studio.exe`）。
+产物：`release/SSH Remote Studio-0.2.1-x64.zip`（**完整便携版**，解压后运行其中的 `SSH Remote Studio.exe`）。
 
 > 说明：NSIS 安装器的最后一步需要 wine，Linux 上通常没有，因此交叉构建默认产出 **zip 便携版**（功能完全一致）。
 > 想要 NSIS 安装器，请在 Windows 上执行 `npm run dist:win`，或在 Linux 安装 wine 后执行 `npx electron-builder --win nsis`。
@@ -111,7 +120,9 @@ bash scripts/build-win.sh      # 等价于 npm run dist:win:zip
 
 1. **新建连接**：左侧 `＋`（或 Ctrl+N）→ 填主机/端口/用户名 → 选认证方式 → 「保存并连接」。
 2. **浏览/编辑文件**：连接后在「文件」页展开目录树，点文件打开，编辑后 `Ctrl+S` 保存；工具栏可新建/上传/下载/改名/删除。
-3. **端口转发**：切到「端口转发」页 → 「转发端口」→ 选类型并填端口 → 「转发」。列表可看状态/流量并停止。
+3. **端口转发**：切到「端口转发」页 → 「转发端口」→ 选类型并填端口 → 「转发」。列表可看状态/流量/实时速率并停止，悬停行可复制本地地址。
+4. **主题与语言**：顶栏右侧调色板按钮切换 4 套主题；`中文 / EN` 分段按钮切换界面语言；两者均自动保存。
+5. **小窗模式**：`Ctrl+M`（或顶栏「小窗模式」、视图菜单）进入置顶隧道监控小窗；图钉按钮可取消置顶；`Ctrl+M` 或展开按钮回到主窗口。
 
 ## 已知限制 / 后续可增强
 

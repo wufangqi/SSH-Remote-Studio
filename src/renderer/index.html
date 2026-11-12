@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="midnight">
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
@@ -7,58 +7,148 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Icon sprite: crisp inline SVG, themed via currentColor -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-logo" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="m7.5 9 3 3-3 3M13 15h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.5h7L18.5 9v11a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1v-15.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13 3.5V9h5.5" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.2 1.2M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.2-1.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-7.5L21 11M5.5 9.5V19a1 1 0 0 0 1 1H10v-5.5h4V20h3.5a1 1 0 0 0 1-1V9.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h5.2a2 2 0 0 1 1.4.6l7 7a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0l-7-7A2 2 0 0 1 4 11.2V6Z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="8.7" cy="8.7" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.5h15M9.5 6V4.8a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1V6M6.5 6.5l.8 12.6a1 1 0 0 0 1 .9h7.4a1 1 0 0 0 1-.9l.8-12.6M10 10.5v6M14 10.5v6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h11l4 4v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8 4v5h7V4M8 21v-7h8v7" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3ZM13.5 6.5l3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.5a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5V8ZM12 16v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pip" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="12.5" y="11" width="6.5" height="5.5" rx="1" fill="currentColor"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 3.5H4.5V8M15 3.5h4.5V8M9 20.5H4.5V16M15 20.5h4.5V16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M9 4h6l-.7 6.2 2.7 2.3v1.5H7v-1.5l2.7-2.3L9 4ZM12 14v6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-.9-.7-1.4-.7-2.2 0-.9.7-1.6 1.7-1.6H17a4.5 4.5 0 0 0 4.5-4.7C21.2 6.2 17 3 12 3Z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="7.6" cy="10.5" r="1.3" fill="currentColor"/><circle cx="11" cy="7.3" r="1.3" fill="currentColor"/><circle cx="15.4" cy="8.6" r="1.3" fill="currentColor"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 12h17M12 3.5c2.5 2.3 3.8 5.2 3.8 8.5s-1.3 6.2-3.8 8.5c-2.5-2.3-3.8-5.2-3.8-8.5s1.3-6.2 3.8-8.5Z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m10 8 4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m8 12.3 2.8 2.7L16 9.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4L12 4Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v4.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="16.8" r="1.1" fill="currentColor"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="7.8" r="1.1" fill="currentColor"/></symbol>
+    <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m9 9 6 6M15 9l-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M15.5 5.5v-1a1 1 0 0 0-1-1h-10a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h1" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6.5L14 18l2.5-6H21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 5.8v5.4c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V5.8L12 3Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m9 11.8 2.3 2.2L15.5 9.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5M12.5 17.5H19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3.5" y="13" width="17" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="7" cy="7.5" r="1.1" fill="currentColor"/><circle cx="7" cy="16.5" r="1.1" fill="currentColor"/></symbol>
+  </svg>
+
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="ic"><use href="#i-logo"/></svg></span>
+      <span class="brand-name">SSH Remote Studio</span>
+      <span id="brand-version" class="ver-chip"></span>
+    </div>
+    <span class="spacer"></span>
+    <div class="topbar-controls">
+      <div id="theme-picker" class="picker">
+        <button id="theme-btn" class="top-btn" data-i18n-title="theme.title" aria-haspopup="true">
+          <svg class="ic"><use href="#i-palette"/></svg>
+          <span id="theme-swatch" class="swatch"></span>
+          <span id="theme-name" class="top-btn-label"></span>
+          <svg class="ic ic-chev"><use href="#i-chevron"/></svg>
+        </button>
+        <div id="theme-menu" class="picker-menu" hidden role="menu"></div>
+      </div>
+      <div id="lang-switch" class="seg" role="group" data-i18n-aria="lang.title">
+        <button class="seg-btn" data-lang="zh">中文</button>
+        <button class="seg-btn" data-lang="en">EN</button>
+      </div>
+      <button id="btn-mini" class="top-btn accent" data-i18n-title="mini.button">
+        <svg class="ic"><use href="#i-pip"/></svg>
+        <span class="top-btn-label" data-i18n="mini.button">小窗模式</span>
+      </button>
+    </div>
+  </header>
+
   <div id="app">
     <aside id="sidebar">
       <div class="sidebar-header">
-        <span class="logo">⚡ SSH Remote Studio</span>
-        <button id="btn-add-conn" class="icon-btn" title="新建连接 (Ctrl+N)">＋</button>
+        <span class="sidebar-section-title" data-i18n="sidebar.connections">连接</span>
+        <button id="btn-add-conn" class="icon-btn" data-i18n-title="sidebar.new"><svg class="ic"><use href="#i-plus"/></svg></button>
       </div>
-      <div class="sidebar-section-title">连接</div>
       <ul id="conn-list"></ul>
       <div class="sidebar-footer">
         <span id="app-version"></span>
-        <span id="enc-state" title="密钥是否加密存储"></span>
+        <span id="enc-state" class="enc-chip"></span>
       </div>
     </aside>
 
     <main id="main">
       <div id="welcome">
+        <div class="welcome-bg" aria-hidden="true"></div>
         <div class="welcome-card">
-          <h1>⚡ SSH Remote Studio</h1>
-          <p>通过 SSH 打开远程计算机上的任意文件夹，浏览与编辑文件，并管理端口转发。</p>
-          <ul class="welcome-tips">
-            <li>📁 在左侧新建一个连接（支持密码 / 私钥 / Agent 认证）</li>
-            <li>📝 连接后浏览远程目录树，打开并保存文件</li>
-            <li>🔌 在「端口转发」中添加本地 (-L)、远程 (-R) 或动态 SOCKS (-D) 转发</li>
-          </ul>
-          <button id="btn-welcome-add" class="primary">＋ 新建连接</button>
+          <div class="welcome-logo"><svg class="ic"><use href="#i-logo"/></svg></div>
+          <h1>SSH Remote Studio</h1>
+          <p class="welcome-sub" data-i18n="welcome.sub">通过 SSH 打开远程计算机上的任意文件夹，浏览与编辑文件，并管理端口转发。</p>
+          <div class="welcome-cards">
+            <div class="wcard">
+              <span class="wcard-ic files"><svg class="ic"><use href="#i-folder"/></svg></span>
+              <div class="wcard-text">
+                <h3 data-i18n="welcome.files.title">远程文件</h3>
+                <p data-i18n="welcome.files.desc">懒加载目录树，打开并编辑文本文件，Ctrl+S 直接保存回远程。</p>
+              </div>
+            </div>
+            <div class="wcard">
+              <span class="wcard-ic ports"><svg class="ic"><use href="#i-plug"/></svg></span>
+              <div class="wcard-text">
+                <h3 data-i18n="welcome.ports.title">端口转发</h3>
+                <p data-i18n="welcome.ports.desc">本地 -L、远程 -R、动态 SOCKS -D 三种隧道，实时状态与流量。</p>
+              </div>
+            </div>
+            <div class="wcard">
+              <span class="wcard-ic security"><svg class="ic"><use href="#i-shield"/></svg></span>
+              <div class="wcard-text">
+                <h3 data-i18n="welcome.security.title">安全连接</h3>
+                <p data-i18n="welcome.security.desc">密码 / 私钥 / Agent 认证，TOFU 主机密钥校验，凭据加密存储。</p>
+              </div>
+            </div>
+          </div>
+          <button id="btn-welcome-add" class="primary big"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="welcome.cta">新建连接</span></button>
+          <div class="welcome-keys">
+            <span><kbd>Ctrl</kbd>+<kbd>N</kbd> <span data-i18n="welcome.keyHint">新建连接</span></span>
+            <span class="dot-sep">·</span>
+            <span><kbd>Ctrl</kbd>+<kbd>M</kbd> <span data-i18n="mini.button">小窗模式</span></span>
+          </div>
         </div>
       </div>
 
       <div id="workspace" hidden>
         <div id="tabbar">
-          <button class="tab active" data-tab="files">📁 文件</button>
-          <button class="tab" data-tab="ports">🔌 端口转发 <span id="port-count" class="badge" hidden>0</span></button>
+          <button class="tab active" data-tab="files"><svg class="ic"><use href="#i-folder"/></svg><span data-i18n="tab.files">文件</span></button>
+          <button class="tab" data-tab="ports"><svg class="ic"><use href="#i-plug"/></svg><span data-i18n="tab.ports">端口转发</span><span id="port-count" class="badge" hidden>0</span></button>
           <div class="tabbar-right">
             <span id="conn-label" class="conn-label"></span>
             <span id="conn-state" class="state-dot"></span>
-            <button id="btn-disconnect" class="ghost">断开</button>
+            <button id="btn-disconnect" class="ghost small"><svg class="ic"><use href="#i-power"/></svg><span data-i18n="workspace.disconnect">断开</span></button>
           </div>
         </div>
 
         <section id="view-files" class="view">
           <div id="files-toolbar">
-            <button id="btn-home" class="icon-btn" title="主目录">🏠</button>
-            <button id="btn-up" class="icon-btn" title="上级目录">⬆</button>
-            <input id="path-input" type="text" spellcheck="false" placeholder="远程路径，回车跳转" />
-            <button id="btn-refresh" class="icon-btn" title="刷新">⟳</button>
+            <button id="btn-home" class="icon-btn" data-i18n-title="files.home"><svg class="ic"><use href="#i-home"/></svg></button>
+            <button id="btn-up" class="icon-btn" data-i18n-title="files.up"><svg class="ic"><use href="#i-up"/></svg></button>
+            <input id="path-input" type="text" spellcheck="false" data-i18n-placeholder="files.path.placeholder" placeholder="远程路径，回车跳转" />
+            <button id="btn-refresh" class="icon-btn" data-i18n-title="files.refresh"><svg class="ic"><use href="#i-refresh"/></svg></button>
             <span class="toolbar-sep"></span>
-            <button id="btn-new-file" class="ghost" title="新建文件">＋文件</button>
-            <button id="btn-new-dir" class="ghost" title="新建文件夹">＋文件夹</button>
-            <button id="btn-upload" class="ghost" title="上传文件到当前目录">⬆上传</button>
-            <button id="btn-download" class="ghost" title="下载选中文件">⬇下载</button>
-            <button id="btn-rename" class="ghost" title="重命名选中项">改名</button>
-            <button id="btn-delete" class="ghost danger" title="删除选中项">删除</button>
+            <button id="btn-new-file" class="ghost small" data-i18n-title="files.newFile.title"><svg class="ic"><use href="#i-file"/></svg><span data-i18n="files.newFile">＋文件</span></button>
+            <button id="btn-new-dir" class="ghost small" data-i18n-title="files.newDir.title"><svg class="ic"><use href="#i-folder"/></svg><span data-i18n="files.newDir">＋文件夹</span></button>
+            <button id="btn-upload" class="ghost small" data-i18n-title="files.upload.title"><svg class="ic"><use href="#i-upload"/></svg><span data-i18n="files.upload">上传</span></button>
+            <button id="btn-download" class="ghost small" data-i18n-title="files.download.title"><svg class="ic"><use href="#i-download"/></svg><span data-i18n="files.download">下载</span></button>
+            <button id="btn-rename" class="ghost small" data-i18n-title="files.rename.title"><svg class="ic"><use href="#i-tag"/></svg><span data-i18n="files.rename">改名</span></button>
+            <button id="btn-delete" class="ghost small danger" data-i18n-title="files.delete.title"><svg class="ic"><use href="#i-trash"/></svg><span data-i18n="files.delete">删除</span></button>
           </div>
           <div id="files-body">
             <div id="tree-pane">
@@ -66,20 +156,22 @@
             </div>
             <div id="editor-pane">
               <div id="editor-header" hidden>
+                <svg class="ic editor-file-ic"><use href="#i-file"/></svg>
                 <span id="editor-path" class="editor-path"></span>
-                <span id="editor-modified" class="modified" hidden>●</span>
+                <span id="editor-modified" class="modified" hidden data-i18n-title="editor.modified">●</span>
                 <span class="spacer"></span>
                 <span id="editor-info" class="editor-info"></span>
-                <button id="btn-save" class="primary small" title="保存 (Ctrl+S)">💾 保存</button>
-                <button id="btn-close-file" class="icon-btn" title="关闭">✕</button>
+                <button id="btn-save" class="primary small" data-i18n-title="editor.save.title"><svg class="ic"><use href="#i-save"/></svg><span data-i18n="editor.save">保存</span></button>
+                <button id="btn-close-file" class="icon-btn" data-i18n-title="editor.close"><svg class="ic"><use href="#i-x"/></svg></button>
               </div>
               <div id="editor-wrap" hidden>
                 <div id="gutter"></div>
                 <textarea id="editor" spellcheck="false" wrap="off"></textarea>
               </div>
               <div id="editor-empty">
-                <p>📂 从左侧目录树选择一个文件以打开</p>
-                <p class="muted">支持查看与编辑文本文件，Ctrl+S 保存到远程</p>
+                <span class="empty-ic"><svg class="ic"><use href="#i-file"/></svg></span>
+                <p data-i18n="editor.empty1">从左侧目录树选择一个文件以打开</p>
+                <p class="muted" data-i18n="editor.empty2">支持查看与编辑文本文件，Ctrl+S 保存到远程</p>
               </div>
             </div>
           </div>
@@ -87,23 +179,29 @@
 
         <section id="view-ports" class="view" hidden>
           <div id="ports-toolbar">
-            <button id="btn-add-forward" class="primary">＋ 转发端口</button>
-            <span class="muted">转发端口以在本地访问正在运行的服务</span>
+            <button id="btn-add-forward" class="primary"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="ports.add">＋ 转发端口</span></button>
+            <span class="muted ports-hint" data-i18n="ports.hint">转发端口以在本地访问正在运行的服务</span>
+            <label class="switch" data-i18n-title="ports.restore.title">
+              <input type="checkbox" id="chk-restore-forwards" checked />
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span class="switch-label" data-i18n="ports.restore">启动时恢复</span>
+            </label>
             <span class="spacer"></span>
-            <button id="btn-refresh-ports" class="icon-btn" title="刷新">⟳</button>
+            <button id="btn-refresh-ports" class="icon-btn" data-i18n-title="files.refresh"><svg class="ic"><use href="#i-refresh"/></svg></button>
           </div>
           <div id="ports-table-wrap">
             <table id="ports-table">
               <thead>
                 <tr>
-                  <th>类型</th><th>转发</th><th>本地地址</th><th>状态</th><th>连接数</th><th>流量</th><th></th>
+                  <th data-i18n="ports.th.type">类型</th><th data-i18n="ports.th.forward">转发</th><th data-i18n="ports.th.localAddr">本地地址</th><th data-i18n="ports.th.status">状态</th><th data-i18n="ports.th.connections">连接数</th><th data-i18n="ports.th.traffic">流量</th><th></th>
                 </tr>
               </thead>
               <tbody id="ports-body"></tbody>
             </table>
             <div id="ports-empty">
-              <p>没有转发的端口。</p>
-              <button id="btn-add-forward-empty" class="primary">转发端口</button>
+              <span class="empty-ic"><svg class="ic"><use href="#i-plug"/></svg></span>
+              <p data-i18n="ports.empty">没有转发的端口。</p>
+              <button id="btn-add-forward-empty" class="primary"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="ports.emptyBtn">转发端口</span></button>
             </div>
           </div>
         </section>
@@ -112,9 +210,75 @@
   </div>
 
   <div id="statusbar">
+    <span id="status-dot" class="status-dot"></span>
     <span id="status-text">就绪</span>
     <span class="spacer"></span>
     <span id="status-right"></span>
+  </div>
+
+  <!-- ===== Mini mode: always-on-top tunnel monitor ===== -->
+  <div id="mini" hidden>
+    <header id="mini-head">
+      <div class="mini-brand">
+        <span class="brand-mark small"><svg class="ic"><use href="#i-logo"/></svg></span>
+        <div class="mini-brand-text">
+          <div class="mini-title" data-i18n="mini.title">隧道监控</div>
+          <div class="mini-sub">SSH Remote Studio</div>
+        </div>
+      </div>
+      <span id="mini-clock" class="mini-clock"></span>
+      <button id="mini-pin" class="icon-btn" data-i18n-title="mini.pin"><svg class="ic"><use href="#i-pin"/></svg></button>
+      <button id="mini-expand" class="icon-btn" data-i18n-title="mini.expand"><svg class="ic"><use href="#i-expand"/></svg></button>
+    </header>
+
+    <div id="mini-quick">
+      <select id="mini-conn-select" data-i18n-aria="mini.quickConnect"></select>
+      <button id="mini-connect" class="primary small"><svg class="ic"><use href="#i-terminal"/></svg><span data-i18n="mini.connect">连接</span></button>
+    </div>
+
+    <div id="mini-scroll">
+      <div id="mini-empty" hidden>
+        <span class="empty-ic"><svg class="ic"><use href="#i-server"/></svg></span>
+        <p class="mini-empty-title" data-i18n="mini.noSessions">没有活动连接</p>
+        <p class="muted mini-empty-hint" data-i18n="mini.noSessionsHint">用上方「快速连接」接入已保存的主机。</p>
+        <button id="mini-new-conn" class="ghost small"><svg class="ic"><use href="#i-plus"/></svg><span data-i18n="mini.newConn">新建连接</span></button>
+      </div>
+      <div id="mini-live">
+        <div class="mini-section-head">
+          <svg class="ic"><use href="#i-server"/></svg>
+          <span data-i18n="mini.sessions">会话</span>
+          <span id="mini-sess-count" class="mini-count"></span>
+        </div>
+        <div id="mini-sessions"></div>
+        <div class="mini-section-head">
+          <svg class="ic"><use href="#i-plug"/></svg>
+          <span data-i18n="mini.forwards">端口转发</span>
+          <span id="mini-fwd-count" class="mini-count"></span>
+          <span class="spacer"></span>
+          <button id="mini-add-fwd" class="icon-btn tiny" data-i18n-title="mini.addForward"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+        <div id="mini-forwards"></div>
+      </div>
+    </div>
+
+    <div id="mini-traffic">
+      <div class="mini-traffic-head">
+        <svg class="ic"><use href="#i-activity"/></svg>
+        <span data-i18n="mini.traffic">实时流量</span>
+        <span class="spacer"></span>
+        <span id="mini-rate-up" class="rate up">↑ 0 B/s</span>
+        <span id="mini-rate-down" class="rate down">↓ 0 B/s</span>
+      </div>
+      <canvas id="mini-spark"></canvas>
+    </div>
+
+    <footer id="mini-foot">
+      <span id="mini-total-sess"></span>
+      <span class="dot-sep">·</span>
+      <span id="mini-total-fwd"></span>
+      <span class="dot-sep">·</span>
+      <span id="mini-total-bytes"></span>
+    </footer>
   </div>
 
   <div id="modal-overlay" hidden>
@@ -123,10 +287,12 @@
 
   <div id="toasts"></div>
 
+  <script src="i18n.js"></script>
   <script src="ui.js"></script>
   <script src="connections.js"></script>
   <script src="files.js"></script>
   <script src="ports.js"></script>
+  <script src="mini.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

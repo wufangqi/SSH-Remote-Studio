@@ -17,7 +17,7 @@ const EVENT_NAMES = [
   'state', 'session-error', 'close', 'ready',
   'hostkey-new', 'hostkey-mismatch',
   'forward-added', 'forward-removed', 'forward-error', 'forward-changed',
-  'menu-new-connection',
+  'menu-new-connection', 'menu-toggle-mini',
 ];
 
 const api = {
@@ -61,6 +61,11 @@ const api = {
   },
   app: {
     info: () => call('app:info'),
+    rebuildMenu: () => call('app:rebuildMenu'),
+  },
+  window: {
+    setMini: (mini, pinned) => call('window:setMini', mini, pinned),
+    state: () => call('window:state'),
   },
   // Subscribe to a main-process event. Returns an unsubscribe function.
   on: (name, cb) => {

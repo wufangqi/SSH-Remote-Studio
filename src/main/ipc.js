@@ -15,7 +15,7 @@ function handle(channel, fn) {
   });
 }
 
-function registerIpc({ manager, store, getWindow }) {
+function registerIpc({ manager, store, getWindow, rebuildMenu }) {
   const send = (channel, payload) => {
     const win = getWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -94,6 +94,43 @@ function registerIpc({ manager, store, getWindow }) {
     return res.canceled ? null : res.filePath;
   });
 
+  // ---- window / mini mode ----
+  // Mini mode shrinks the same window into a compact always-on-top tunnel
+  // monitor; full mode restores the previous bounds. State survives renderer
+  // reloads because it lives on the BrowserWindow, not in the page.
+  handle('window:setMini', (mini, pinned = true) => {
+    const win = getWindow();
+    if (!win || win.isDestroyed()) return { mini: false, pinned: true };
+    const { screen } = require('electron');
+    if (mini) {
+      if (!win._mini) {
+        win._fullBounds = win.getBounds();
+        win._mini = true;
+      }
+      win._miniPinned = pinned !== false;
+      const b = win.getBounds();
+      const area = screen.getDisplayMatching(b).workArea;
+      const w = 380, h = 560;
+      const x = Math.min(Math.max(b.x, area.x), Math.max(area.x, area.x + area.width - w));
+      const y = Math.min(Math.max(b.y, area.y), Math.max(area.y, area.y + area.height - h));
+      win.setMinimumSize(320, 420);
+      win.setBounds({ x, y, width: w, height: h });
+      win.setAlwaysOnTop(win._miniPinned);
+      win.setMenuBarVisibility(false);
+    } else {
+      win._mini = false;
+      win.setAlwaysOnTop(false);
+      win.setMenuBarVisibility(true);
+      win.setMinimumSize(960, 600);
+      if (win._fullBounds) win.setBounds(win._fullBounds);
+    }
+    return { mini: !!win._mini, pinned: win._miniPinned !== false };
+  });
+  handle('window:state', () => {
+    const win = getWindow();
+    return { mini: !!(win && win._mini), pinned: win ? win._miniPinned !== false : true };
+  });
+
   // ---- app info ----
   handle('app:info', async () => {
     const { encryptionAvailable } = require('./safe-storage');
@@ -103,6 +140,10 @@ function registerIpc({ manager, store, getWindow }) {
       arch: process.arch,
       encryptionAvailable: await encryptionAvailable(),
     };
+  });
+  handle('app:rebuildMenu', () => {
+    if (typeof rebuildMenu === 'function') rebuildMenu();
+    return null;
   });
 }
 

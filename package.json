@@ -1,6 +1,6 @@
 {
   "name": "ssh-remote-studio",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Windows SSH remote tool: open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
   "main": "src/main/main.js",
   "license": "MIT",

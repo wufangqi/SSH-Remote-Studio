@@ -22,7 +22,7 @@ App.files = {
       App.state.cwd = abs;
       await this.loadRoot();
     } catch (e) {
-      App.toast(e.message, { type: 'error', title: '跳转失败' });
+      App.toast(App.errMsg(e), { type: 'error', title: t('files.jumpFailed') });
     }
   },
 
@@ -32,27 +32,28 @@ App.files = {
     $('#path-input').value = cwd;
     const tree = $('#tree');
     tree.innerHTML = '';
-    tree.append(el('li', { class: 'tree-loading' }, '加载中…'));
+    tree.append(el('li', { class: 'tree-loading' }, t('files.loading')));
     try {
       const res = await window.api.fs.list(id, cwd);
       tree.innerHTML = '';
-      if (!res.entries.length) tree.append(el('li', { class: 'tree-loading' }, '（空目录）'));
+      if (!res.entries.length) tree.append(el('li', { class: 'tree-loading' }, t('files.emptyDir')));
       for (const entry of res.entries) tree.append(this.makeNode(entry));
-      App.setStatusRight(`${res.entries.length} 项 · ${cwd}`);
+      App.setStatusRight(t('files.items', { n: res.entries.length, cwd }));
     } catch (e) {
       tree.innerHTML = '';
-      tree.append(el('li', { class: 'tree-loading' }, '加载失败'));
-      App.toast(e.message, { type: 'error', title: '列出目录失败' });
+      tree.append(el('li', { class: 'tree-loading' }, t('files.loadFailed')));
+      App.toast(App.errMsg(e), { type: 'error', title: t('files.listFailed') });
     }
   },
 
   makeNode(entry) {
     const isDir = entry.type === 'dir';
-    const twisty = el('span', { class: 'twisty' }, isDir ? '▶' : '');
-    const icon = el('span', { class: 'ticon' }, isDir ? '📁' : entry.type === 'symlink' ? '🔗' : '📄');
+    const twisty = el('span', { class: 'twisty' }, isDir ? icon('chev-r') : null);
+    const iconCls = isDir ? 'dir' : entry.type === 'symlink' ? 'link' : 'file';
+    const iconNode = el('span', { class: 'ticon ' + iconCls }, icon(isDir ? 'folder' : entry.type === 'symlink' ? 'link' : 'file'));
     const name = el('span', { class: 'tname', title: entry.path }, entry.name);
     const size = el('span', { class: 'tsize' }, isDir ? '' : fmtBytes(entry.size));
-    const row = el('div', { class: 'tree-node', 'data-path': entry.path }, twisty, icon, name, size);
+    const row = el('div', { class: 'tree-node', 'data-path': entry.path }, twisty, iconNode, name, size);
     const li = el('li', {}, row);
 
     if (isDir) {
@@ -63,20 +64,20 @@ App.files = {
         e.stopPropagation();
         this.select(entry, row);
         expanded = !expanded;
-        twisty.textContent = expanded ? '▼' : '▶';
+        twisty.classList.toggle('open', expanded);
         childUl.hidden = !expanded;
         if (expanded && !loaded) {
           loaded = true;
-          childUl.append(el('li', { class: 'tree-loading' }, '加载中…'));
+          childUl.append(el('li', { class: 'tree-loading' }, t('files.loading')));
           try {
             const res = await window.api.fs.list(App.state.activeId, entry.path);
             childUl.innerHTML = '';
-            if (!res.entries.length) childUl.append(el('li', { class: 'tree-loading' }, '（空）'));
+            if (!res.entries.length) childUl.append(el('li', { class: 'tree-loading' }, t('files.empty')));
             for (const ch of res.entries) childUl.append(this.makeNode(ch));
           } catch (err) {
             childUl.innerHTML = '';
-            childUl.append(el('li', { class: 'tree-loading' }, '加载失败'));
-            App.toast(err.message, { type: 'error' });
+            childUl.append(el('li', { class: 'tree-loading' }, t('files.loadFailed')));
+            App.toast(App.errMsg(err), { type: 'error' });
             loaded = false;
           }
         }
@@ -105,11 +106,11 @@ App.files = {
   async openFile(entry) {
     const id = App.state.activeId;
     try {
-      App.setStatus('打开文件…');
+      App.setStatus(t('status.opening'));
       const data = await window.api.fs.read(id, entry.path);
-      App.setStatus('就绪');
+      App.setStatus();
       if (data.binary) {
-        App.toast(`「${entry.name}」是二进制文件（${fmtBytes(data.size)}），不支持文本编辑，可使用下载。`, { type: 'warn', title: '二进制文件' });
+        App.toast(t('files.binary', { name: entry.name, size: fmtBytes(data.size) }), { type: 'warn', title: t('files.binary.title') });
         return;
       }
       App.state.openFile = {
@@ -121,7 +122,7 @@ App.files = {
       $('#editor-wrap').hidden = false;
       $('#editor-path').textContent = entry.path;
       $('#editor-path').title = entry.path;
-      $('#editor-info').textContent = `${fmtBytes(data.size)} · ${fmtTime(data.mtime)}`;
+      $('#editor-info').textContent = `${fmtBytes(data.size)} · ${fmtTime(data.mtime)} · UTF-8`;
       $('#editor-modified').hidden = true;
       const editor = $('#editor');
       editor.value = data.content;
@@ -129,8 +130,8 @@ App.files = {
       this.updateGutter();
       editor.focus();
     } catch (e) {
-      App.setStatus('就绪');
-      App.toast(e.message, { type: 'error', title: '打开文件失败' });
+      App.setStatus();
+      App.toast(App.errMsg(e), { type: 'error', title: t('files.openFailed') });
     }
   },
 
@@ -147,18 +148,18 @@ App.files = {
     if (!f || f.binary) return;
     const id = App.state.activeId;
     try {
-      App.setStatus('保存中…');
+      App.setStatus(t('status.saving'));
       const content = $('#editor').value;
       const res = await window.api.fs.write(id, f.path, content, { mode: f.mode });
       f.original = content; f.content = content; f.dirty = false;
       f.size = res.size; f.mtime = res.mtime;
       $('#editor-modified').hidden = true;
-      $('#editor-info').textContent = `${fmtBytes(res.size)} · ${fmtTime(res.mtime)}`;
-      App.setStatus('已保存');
-      App.toast(`已保存 ${this.basename(f.path)}`, { type: 'success', timeout: 2200 });
+      $('#editor-info').textContent = `${fmtBytes(res.size)} · ${fmtTime(res.mtime)} · UTF-8`;
+      App.setStatus(t('status.saved'));
+      App.toast(t('toast.fileSaved', { name: this.basename(f.path) }), { type: 'success', timeout: 2200 });
     } catch (e) {
-      App.setStatus('就绪');
-      App.toast(e.message, { type: 'error', title: '保存失败' });
+      App.setStatus();
+      App.toast(App.errMsg(e), { type: 'error', title: t('files.saveFailed') });
     }
   },
 
@@ -181,51 +182,51 @@ App.files = {
 
   // ---- toolbar operations ----
   async newFile() {
-    const name = await App.prompt({ title: '新建文件', label: '文件名', placeholder: '例如 notes.txt' });
+    const name = await App.prompt({ title: t('newFile.title'), label: t('newFile.label'), placeholder: t('newFile.ph') });
     if (!name) return;
     const id = App.state.activeId;
     const p = this.join(App.state.cwd, name);
-    await App.guard('新建文件', () => window.api.fs.write(id, p, ''));
+    await App.guard(t('newFile.title'), () => window.api.fs.write(id, p, ''));
     await this.loadRoot();
     await this.openFile({ path: p, name, type: 'file' });
   },
 
   async newDir() {
-    const name = await App.prompt({ title: '新建文件夹', label: '文件夹名', placeholder: '例如 project' });
+    const name = await App.prompt({ title: t('newDir.title'), label: t('newDir.label'), placeholder: t('newDir.ph') });
     if (!name) return;
     const id = App.state.activeId;
-    await App.guard('新建文件夹', () => window.api.fs.mkdir(id, this.join(App.state.cwd, name)));
+    await App.guard(t('newDir.title'), () => window.api.fs.mkdir(id, this.join(App.state.cwd, name)));
     await this.loadRoot();
   },
 
   async upload() {
     const id = App.state.activeId;
-    const local = await window.api.dialog.openFile({ title: '选择要上传的文件' });
+    const local = await window.api.dialog.openFile({ title: t('upload.dialog') });
     if (!local) return;
     const remote = this.join(App.state.cwd, this.basename(local.replace(/\\/g, '/')));
-    await App.guard('上传', () => window.api.fs.upload(id, local, remote));
+    await App.guard(t('upload.guard'), () => window.api.fs.upload(id, local, remote));
     await this.loadRoot();
-    App.toast(`已上传到 ${remote}`, { type: 'success' });
+    App.toast(t('toast.uploaded', { path: remote }), { type: 'success' });
   },
 
   async download() {
     const sel = App.state.selectedEntry;
-    if (!sel || sel.type === 'dir') { App.toast('请先在目录树中选择一个文件', { type: 'warn' }); return; }
+    if (!sel || sel.type === 'dir') { App.toast(t('download.selectFile'), { type: 'warn' }); return; }
     const id = App.state.activeId;
-    const local = await window.api.dialog.saveFile({ title: '保存到本地', defaultName: sel.name });
+    const local = await window.api.dialog.saveFile({ title: t('download.dialog'), defaultName: sel.name });
     if (!local) return;
-    await App.guard('下载', () => window.api.fs.download(id, sel.path, local));
-    App.toast(`已下载到 ${local}`, { type: 'success' });
+    await App.guard(t('download.guard'), () => window.api.fs.download(id, sel.path, local));
+    App.toast(t('toast.downloaded', { path: local }), { type: 'success' });
   },
 
   async rename() {
     const sel = App.state.selectedEntry;
-    if (!sel) { App.toast('请先选择一个文件或文件夹', { type: 'warn' }); return; }
+    if (!sel) { App.toast(t('files.selectFirst'), { type: 'warn' }); return; }
     const id = App.state.activeId;
-    const newName = await App.prompt({ title: '重命名', label: '新名称', value: sel.name });
+    const newName = await App.prompt({ title: t('rename.title'), label: t('rename.label'), value: sel.name });
     if (!newName || newName === sel.name) return;
     const newPath = this.join(this.dirname(sel.path), newName);
-    await App.guard('重命名', () => window.api.fs.rename(id, sel.path, newPath));
+    await App.guard(t('rename.guard'), () => window.api.fs.rename(id, sel.path, newPath));
     if (App.state.openFile && App.state.openFile.path === sel.path) this.closeEditor();
     App.state.selected = null; App.state.selectedEntry = null;
     await this.loadRoot();
@@ -233,17 +234,17 @@ App.files = {
 
   async remove() {
     const sel = App.state.selectedEntry;
-    if (!sel) { App.toast('请先选择一个文件或文件夹', { type: 'warn' }); return; }
+    if (!sel) { App.toast(t('files.selectFirst'), { type: 'warn' }); return; }
     const ok = await App.confirm({
-      title: '删除', danger: true, okLabel: '删除',
-      message: `确定删除「${sel.name}」吗？${sel.type === 'dir' ? '文件夹及其内容将被递归删除。' : ''}此操作不可撤销。`,
+      title: t('remove.title'), danger: true, okLabel: t('conn.delete.ok'),
+      message: t('remove.msg', { name: sel.name, dir: sel.type === 'dir' ? t('remove.dirPart') : '' }),
     });
     if (!ok) return;
     const id = App.state.activeId;
-    await App.guard('删除', () => window.api.fs.remove(id, sel.path, { recursive: true }));
+    await App.guard(t('remove.guard'), () => window.api.fs.remove(id, sel.path, { recursive: true }));
     if (App.state.openFile && App.state.openFile.path === sel.path) this.closeEditor();
     App.state.selected = null; App.state.selectedEntry = null;
     await this.loadRoot();
-    App.toast('已删除', { type: 'success' });
+    App.toast(t('toast.removed'), { type: 'success' });
   },
 };
