@@ -1,0 +1,60 @@
+{
+  "name": "ssh-remote-studio",
+  "version": "0.1.0",
+  "description": "Windows SSH remote tool: open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
+  "main": "src/main/main.js",
+  "license": "MIT",
+  "author": "SSH Remote Studio",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/",
+    "test:core": "node --test test/core.test.js",
+    "test:integration": "node --test test/integration.test.js",
+    "smoke": "node test/ui-smoke.js",
+    "pack": "electron-builder --dir",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.sshremotestudio.app",
+    "productName": "SSH Remote Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SSH Remote Studio"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Development",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
+  }
+}
