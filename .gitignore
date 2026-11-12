@@ -4,5 +4,6 @@ dist/
 .npm-cache/
 .sshd-test/
 *.log
+*.bdic
 .DS_Store
 test/.tmp-*/

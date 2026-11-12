@@ -7,13 +7,13 @@
   "author": "SSH Remote Studio",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/",
-    "test:core": "node --test test/core.test.js",
+    "test": "node --test test/integration.test.js",
     "test:integration": "node --test test/integration.test.js",
     "smoke": "electron test/ui-smoke.js",
     "smoke:headless": "xvfb-run -a electron test/ui-smoke.js --no-sandbox --disable-gpu",
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win",
+    "dist:win:zip": "electron-builder --win zip --x64",
     "dist:linux": "electron-builder --linux"
   },
   "dependencies": {
@@ -32,9 +32,12 @@
     },
     "files": [
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/cpu-features{,/**}",
+      "!node_modules/nan{,/**}"
     ],
     "asar": true,
+    "npmRebuild": false,
     "win": {
       "target": [
         { "target": "nsis", "arch": ["x64"] },

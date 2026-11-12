@@ -1,26 +1,14 @@
 'use strict';
-const { app, BrowserWindow, Menu, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('node:path');
 const { Store } = require('../core/store');
 const { RemoteManager } = require('../core/remote-manager');
 const { registerIpc } = require('./ipc');
+const { buildCipher } = require('./safe-storage');
 
 let win = null;
 let manager = null;
 let store = null;
-
-// Encrypt secrets at rest when the OS provides it (Windows DPAPI / macOS
-// Keychain / Linux libsecret). Falls back to plaintext only when unavailable.
-async function buildCipher() {
-  const available = safeStorage.isAsyncEncryptionAvailable
-    ? await safeStorage.isAsyncEncryptionAvailable()
-    : safeStorage.isEncryptionAvailable();
-  if (!available) return null;
-  return {
-    encrypt: (s) => safeStorage.encryptString(s).toString('base64'),
-    decrypt: (s) => safeStorage.decryptString(Buffer.from(s, 'base64')),
-  };
-}
 
 function createWindow() {
   win = new BrowserWindow({

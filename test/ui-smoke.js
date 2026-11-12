@@ -42,7 +42,7 @@ app.whenReady().then(async () => {
     width: 1280, height: 820, show: true, backgroundColor: '#1b1c20',
     webPreferences: {
       preload: path.join(__dirname, '..', 'src', 'main', 'preload.js'),
-      contextIsolation: true, nodeIntegration: false, sandbox: false,
+      contextIsolation: true, nodeIntegration: false, sandbox: false, spellcheck: false,
     },
   });
   win.webContents.on('console-message', (...args) => {

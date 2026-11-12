@@ -96,15 +96,12 @@ function registerIpc({ manager, store, getWindow }) {
 
   // ---- app info ----
   handle('app:info', async () => {
-    const { safeStorage } = require('electron');
-    const encryptionAvailable = safeStorage.isAsyncEncryptionAvailable
-      ? await safeStorage.isAsyncEncryptionAvailable()
-      : safeStorage.isEncryptionAvailable();
+    const { encryptionAvailable } = require('./safe-storage');
     return {
       version: require('electron').app.getVersion(),
       platform: process.platform,
       arch: process.arch,
-      encryptionAvailable,
+      encryptionAvailable: await encryptionAvailable(),
     };
   });
 }
