@@ -1,6 +1,6 @@
 # ⚡ SSH Remote Studio
 
-一个 **Windows 桌面 SSH 远程工具**：通过 SSH 打开远程计算机上的任意文件夹，在应用内浏览与编辑远程文件，并像 VS Code 一样管理**端口转发**（本地 `-L` / 远程 `-R` / 动态 SOCKS `-D`）。
+一个 **跨平台桌面 SSH 远程工具**（**Windows / macOS / Linux**）：通过 SSH 打开远程计算机上的任意文件夹，在应用内浏览与编辑远程文件，并像 VS Code 一样管理**端口转发**（本地 `-L` / 远程 `-R` / 动态 SOCKS `-D`）。
 
 技术栈：**Electron + Node.js + [ssh2](https://github.com/mscdex/ssh2)**，渲染层为原生 HTML/CSS/JS（无前端框架、无打包器），主进程与核心逻辑完全解耦、可独立测试。
 
@@ -73,38 +73,58 @@ npm start              # 启动应用
 ## 测试
 
 ```bash
-npm test               # 核心集成测试（11 项，进程内真实 SSH 协议）
+npm test               # 核心集成测试（16 项，进程内真实 SSH 协议）
 npm run smoke:headless # 端到端 UI 冒烟（Linux 无头，需 xvfb-run）
 npm run smoke          # 端到端 UI 冒烟（有桌面环境）
 ```
 
+> 全部测试基于进程内 SSH 服务，**三个平台（Windows / macOS / Linux）均可直接运行**，无需外部 SSH 服务器。
+
 核心测试覆盖：密码/密钥认证、错误密码拒绝、exec、SFTP 增删改查/二进制检测/大小保护/上传下载、**本地/动态/远程三种转发端到端**、TOFU 主机密钥、存储加密不泄漏。
 UI 冒烟覆盖：真实渲染层启动 → 连接 → 目录树 → 打开/编辑/保存远程文件 → 添加转发 → **转发真实隧道连通** → **主题切换与持久化** → **中英文切换与持久化** → **小窗模式（会话/转发卡片、窗口状态、趋势图）与展开还原** → 零控制台错误，并输出截图到 `build/`（无显示表面时截图自动跳过，不影响断言）。
 
-## Windows 打包
+## 打包
 
-**在 Windows 上（推荐，生成安装程序）：**
+在**目标平台**上构建对应产物（electron-builder 不支持跨平台构建 macOS/Linux 安装包）：
 
 ```bash
 npm install
-npm run dist:win       # NSIS 安装包 + 便携版到 release/
+
+# Windows（在 Windows 上）
+npm run dist:win        # NSIS 安装包 + 便携版 → release/
+
+# Linux（在 Linux 上）
+npm run dist:linux      # AppImage + .deb → release/
+
+# macOS（在 macOS 上）
+npm run dist:mac        # .dmg + .zip（x64 + arm64）→ release/
 ```
 
-产物：`release/SSH Remote Studio-0.2.1-x64.exe`（NSIS 安装包，可选安装目录、创建桌面/开始菜单快捷方式）。
+产物示例（版本号随 `package.json`）：
 
-**在 Linux 上交叉构建（本仓库已验证，无需 wine）：**
+| 平台 | 产物 |
+|---|---|
+| Windows | `release/SSH Remote Studio-0.3.0-x64.exe`（NSIS 安装包）、`…-portable.exe` |
+| Linux | `release/SSH Remote Studio-0.3.0-x64.AppImage`、`…-x64.deb` |
+| macOS | `release/SSH Remote Studio-0.3.0-x64.dmg` / `…-arm64.dmg`（Apple Silicon 原生） |
 
-```bash
-bash scripts/build-win.sh      # 等价于 npm run dist:win:zip
-```
-
-产物：`release/SSH Remote Studio-0.2.1-x64.zip`（**完整便携版**，解压后运行其中的 `SSH Remote Studio.exe`）。
-
-> 说明：NSIS 安装器的最后一步需要 wine，Linux 上通常没有，因此交叉构建默认产出 **zip 便携版**（功能完全一致）。
-> 想要 NSIS 安装器，请在 Windows 上执行 `npm run dist:win`，或在 Linux 安装 wine 后执行 `npx electron-builder --win nsis`。
+> **Windows 在 Linux 上交叉构建**（无需 wine，产出 zip 便携版）：`bash scripts/build-win.sh`，等价于 `npm run dist:win:zip`。
+> NSIS 安装器最后一步需要 wine，Linux 上通常没有，因此交叉构建默认产出 zip 便携版（功能完全一致）。
 > 无论哪种方式，`release/win-unpacked/` 都是可直接运行的完整 Windows 应用目录。
 
-### 构建环境注意事项（Linux / 受限网络）
+### 各平台说明
+
+| 项 | Windows | macOS | Linux |
+|---|---|---|---|
+| 凭据加密 | DPAPI | Keychain | libsecret / gnome-keyring（无则回退明文并提示） |
+| SSH Agent | Pageant / OpenSSH Agent | `SSH_AUTH_SOCK` | `SSH_AUTH_SOCK` |
+| 运行 | 双击 exe | `open -a "SSH Remote Studio"` | `./SSH Remote Studio-*.AppImage` |
+| 签名 | 未配置（跳过） | 未配置（跳过，需自行签名/公证） | 不适用 |
+
+- **Linux 以 root 运行时**需加 `--no-sandbox`（Chromium 沙箱限制），或在普通用户下运行。
+- **Linux 无桌面/无密钥环**：凭据加密不可用时自动回退明文存储，状态栏会显示「明文存储」。
+
+### 构建环境注意事项（受限网络）
 
 - npm 缓存改用工作区目录，避免 `~/.npm` 的 root 文件导致 `EACCES`：
   `export npm_config_cache=$PWD/../.npm-cache`
@@ -114,15 +134,15 @@ bash scripts/build-win.sh      # 等价于 npm run dist:win:zip
   export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
   export electron_config_cache=$PWD/../.cache/electron   # 避免 ~/.cache 不可写
   ```
-- 图标由 `python3 scripts/make-icon.py` 生成（需 Pillow）。
+- 图标由 `python3 scripts/make-icon.py` 生成（需 Pillow）：`build/icon.png` 1024×1024（macOS/视网膜）+ `build/icon.ico`（Windows）。
 
 ## 使用说明
 
-1. **新建连接**：左侧 `＋`（或 Ctrl+N）→ 填主机/端口/用户名 → 选认证方式 → 「保存并连接」。
-2. **浏览/编辑文件**：连接后在「文件」页展开目录树，点文件打开，编辑后 `Ctrl+S` 保存；工具栏可新建/上传/下载/改名/删除。
+1. **新建连接**：左侧 `＋`（或 Ctrl+N，macOS 为 ⌘N）→ 填主机/端口/用户名 → 选认证方式 → 「保存并连接」。
+2. **浏览/编辑文件**：连接后在「文件」页展开目录树，点文件打开，编辑后 `Ctrl+S`（macOS ⌘S）保存；工具栏可新建/上传/下载/改名/删除。
 3. **端口转发**：切到「端口转发」页 → 「转发端口」→ 选类型并填端口 → 「转发」。列表可看状态/流量/实时速率并停止，悬停行可复制本地地址。
 4. **主题与语言**：顶栏右侧调色板按钮切换 4 套主题；`中文 / EN` 分段按钮切换界面语言；两者均自动保存。
-5. **小窗模式**：`Ctrl+M`（或顶栏「小窗模式」、视图菜单）进入置顶隧道监控小窗；图钉按钮可取消置顶；`Ctrl+M` 或展开按钮回到主窗口。
+5. **小窗模式**：`Ctrl+M`（macOS ⌘M；或顶栏「小窗模式」、视图菜单）进入置顶隧道监控小窗；图钉按钮可取消置顶；`Ctrl+M` 或展开按钮回到主窗口。
 
 ## 已知限制 / 后续可增强
 
@@ -130,6 +150,7 @@ bash scripts/build-win.sh      # 等价于 npm run dist:win:zip
 - 远程路径按 POSIX 处理（面向 Linux/Unix 远程主机）。
 - 未实现 SSH 跳板机（ProxyJump）、`~/.ssh/config` 导入、远程终端（shell）——可作为下一步。
 - 主机密钥策略默认 TOFU；可在设置中改为严格校验（`hostKeyPolicy`）。
+- 本项目在 Windows 上完成开发与全量测试；macOS / Linux 的应用代码已做平台适配（凭据加密、SSH Agent、字体、菜单、窗口行为），构建配置与脚本已提供，但 **macOS/Linux 安装包需在对应平台构建验证**。
 
 ## 许可
 

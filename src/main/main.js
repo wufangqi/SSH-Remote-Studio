@@ -123,6 +123,8 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // Windows: explicit AppUserModelID so the taskbar groups by app, not exe.
+    if (process.platform === 'win32') app.setAppUserModelId('com.sshremotestudio.app');
     const userData = app.getPath('userData');
     store = new Store(userData, { cipher: await buildCipher() });
     manager = new RemoteManager({

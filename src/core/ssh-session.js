@@ -72,7 +72,12 @@ class SshSession extends EventEmitter {
     }
     if (c.passphrase) opts.passphrase = c.passphrase;
     if (c.authType === 'agent') {
-      opts.agent = c.agent || process.env.SSH_AUTH_SOCK || 'pageant';
+      // Windows has no SSH_AUTH_SOCK convention: default to Pageant. On POSIX
+      // use the agent socket only; passing 'pageant' there would make ssh2
+      // attempt a Windows-only agent and fail with a confusing error.
+      const envAgent = process.env.SSH_AUTH_SOCK;
+      const agent = c.agent || envAgent || (process.platform === 'win32' ? 'pageant' : undefined);
+      if (agent) opts.agent = agent;
     }
     if (c.algorithms) opts.algorithms = c.algorithms;
     return opts;

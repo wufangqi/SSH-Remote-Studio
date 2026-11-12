@@ -1,7 +1,7 @@
 {
   "name": "ssh-remote-studio",
-  "version": "0.2.1",
-  "description": "Windows SSH remote tool: open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
+  "version": "0.3.0",
+  "description": "Cross-platform SSH remote tool (Windows/macOS/Linux): open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
   "main": "src/main/main.js",
   "license": "MIT",
   "author": "SSH Remote Studio",
@@ -14,7 +14,9 @@
     "pack": "electron-builder --dir",
     "dist:win": "electron-builder --win",
     "dist:win:zip": "electron-builder --win zip --x64",
-    "dist:linux": "electron-builder --linux"
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac",
+    "dist:mac:zip": "electron-builder --mac zip"
   },
   "dependencies": {
     "ssh2": "^1.17.0"
@@ -56,9 +58,24 @@
       "artifactName": "${productName}-${version}-portable.${ext}"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
       "category": "Development",
+      "maintainer": "SSH Remote Studio <ssh-remote-studio@users.noreply.github.com>",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "identity": null,
+      "gatekeeperAssess": false
     }
   }
 }

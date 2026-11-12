@@ -147,7 +147,7 @@ html[data-theme="nebula"] {
 :root {
   --radius: 8px;
   --radius-sm: 6px;
-  --mono: "Cascadia Code", "JetBrains Mono", "Consolas", "SF Mono", Menlo, monospace;
+  --mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, "DejaVu Sans Mono", "Ubuntu Mono", "Liberation Mono", "Consolas", monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
   --topbar-h: 46px;
   --statusbar-h: 26px;
