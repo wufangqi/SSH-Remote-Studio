@@ -106,9 +106,11 @@ npm run dist:mac        # .dmg + .zip（x64 + arm64）→ release/
 
 | 平台 | 产物 |
 |---|---|
-| Windows | `release/SSH Remote Studio-0.3.0-x64.exe`（NSIS 安装包）、`…-portable.exe` |
-| Linux | `release/SSH Remote Studio-0.3.0-x64.AppImage`、`…-x64.deb` |
-| macOS | `release/SSH Remote Studio-0.3.0-x64.dmg` / `…-arm64.dmg`（Apple Silicon 原生） |
+| Windows | `release/SSH Remote Studio-0.3.1-x64.exe`（NSIS 安装包）、`…-portable.exe` |
+| Linux | `release/SSH Remote Studio-0.3.1-x64.AppImage`、`…-x64.deb` |
+| macOS | `release/SSH Remote Studio-0.3.1-x64.dmg` / `…-arm64.dmg`（Apple Silicon 原生） |
+
+> **下载现成版本**：前往 [GitHub Releases](https://github.com/wufangqi/SSH-Remote-Studio/releases) 获取各平台安装包。
 
 > **Windows 在 Linux 上交叉构建**（无需 wine，产出 zip 便携版）：`bash scripts/build-win.sh`，等价于 `npm run dist:win:zip`。
 > NSIS 安装器最后一步需要 wine，Linux 上通常没有，因此交叉构建默认产出 zip 便携版（功能完全一致）。
