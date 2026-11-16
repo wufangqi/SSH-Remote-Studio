@@ -774,7 +774,8 @@ describe('forward persistence and restart restore', () => {
       seed = null;
 
       const store = new Store(dir);
-      store.setSetting('restoreForwards', false);
+      store.saveConnection(cfg());
+      store.setRestoreForwards(CONN, false);
       m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
       await m.connect(cfg());
       await new Promise((r) => setTimeout(r, 250));
@@ -787,6 +788,51 @@ describe('forward persistence and restart restore', () => {
       // Manual start from the row works and opens the tunnel.
       const started = await m.restartForward(CONN, loaded[0].id);
       assert.equal(started.status, 'active');
+    } finally {
+      echo.close();
+      if (seed) await seed.destroy();
+      if (m) await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('auto-start is independent per connection and survives a profile edit', async () => {
+    const dir = tmpRoot();
+    const echo = await startEchoServer();
+    const A = 'persist-a';
+    const B = 'persist-b';
+    const profile = (id) => ({ id, host: info.host, port: info.port, username: info.username, password: info.password, name: id });
+    let seed = null, m = null;
+    try {
+      seed = new RemoteManager({ store: new Store(dir), hostKeyPolicy: 'accept' });
+      seed.saveConnection(profile(A));
+      seed.saveConnection(profile(B));
+      await seed.connect(A);
+      await seed.addForward(A, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+      await seed.connect(B);
+      await seed.addForward(B, { type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port });
+      seed.store.setSetting('restoreForwards', false);
+      seed.store.setRestoreForwards(A, false);
+      seed.store.setRestoreForwards(B, true);
+      // Editing host details must not clear the switch.
+      seed.saveConnection({ id: B, host: info.host, port: info.port, username: info.username, name: B });
+      await seed.destroy();
+      seed = null;
+
+      const store = new Store(dir);
+      assert.equal(store.restoreForwardsEnabled(A), false);
+      assert.equal(store.restoreForwardsEnabled(B), true);
+      assert.equal(store.restoreForwardsEnabled('never-set'), false);
+      m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+      await m.connect(A);
+      await m.connect(B);
+      await new Promise((r) => setTimeout(r, 500));
+      const a = m.listForwards(A);
+      const b = m.listForwards(B);
+      assert.equal(a.length, 1);
+      assert.notEqual(a[0].status, 'active');
+      assert.equal(b.length, 1);
+      assert.equal(b[0].status, 'active');
     } finally {
       echo.close();
       if (seed) await seed.destroy();

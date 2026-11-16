@@ -2,6 +2,9 @@
 // Remote file tree + text editor + file operations.
 App.files = {
   _mdToken: 0,
+  _recent: [],
+  _recentLoaded: false,
+  RECENT_LIMIT: 40,
   join(dir, name) { return dir.endsWith('/') ? dir + name : dir + '/' + name; },
   dirname(p) { const i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); },
   basename(p) { return p.slice(p.lastIndexOf('/') + 1); },
@@ -57,7 +60,119 @@ App.files = {
     }
   },
 
+  async ensureRecent() {
+    if (this._recentLoaded) return;
+    this._recentLoaded = true;
+    try {
+      const list = await window.api.settings.get('recentFiles', []);
+      this._recent = Array.isArray(list) ? list.filter((item) => item && item.connId && item.path) : [];
+    } catch {
+      this._recent = [];
+    }
+  },
+
+  recentUri(item) {
+    const path = String(item.path || '').startsWith('/') ? item.path : `/${item.path || ''}`;
+    return `ssh://${item.connId}${path}`;
+  },
+
+  recentConn(item) {
+    const c = (App.state.connections || []).find((x) => x.id === item.connId);
+    if (!c) return null;
+    return {
+      name: c.name || `${c.username}@${c.host}`,
+      host: `${c.username}@${c.host}:${c.port || 22}`,
+    };
+  },
+
+  async rememberRecent(entry) {
+    if (!entry || !entry.path || !App.state.activeId) return;
+    await this.ensureRecent();
+    const item = {
+      connId: App.state.activeId,
+      path: entry.path,
+      name: entry.name || this.basename(entry.path),
+      at: Date.now(),
+    };
+    this._recent = [item, ...this._recent.filter((x) => !(x.connId === item.connId && x.path === item.path))];
+    if (this._recent.length > this.RECENT_LIMIT) this._recent.length = this.RECENT_LIMIT;
+    try { await window.api.settings.set('recentFiles', this._recent); } catch { /* keep the in-memory list */ }
+  },
+
+  renderRecent() {
+    const list = $('#recent-list');
+    const empty = $('#recent-empty');
+    if (!list) return;
+    list.innerHTML = '';
+    const items = this._recent || [];
+    if (empty) empty.hidden = items.length > 0;
+    for (const item of items) {
+      const name = item.name || this.basename(item.path);
+      const conn = this.recentConn(item);
+      const mark = conn
+        ? el('span', { class: 'recent-conn' },
+            el('span', { class: 'recent-conn-name' }, conn.name),
+            el('span', { class: 'recent-conn-host' }, conn.host))
+        : el('span', { class: 'recent-conn missing' }, t('recent.connMissing'));
+      list.append(el('li', {},
+        el('button', {
+          type: 'button',
+          class: 'recent-item',
+          title: this.recentUri(item),
+          onclick: () => this.openRecent(item),
+        },
+          el('span', { class: 'recent-name' }, name),
+          mark,
+          el('span', { class: 'recent-path' }, item.path))));
+    }
+  },
+
+  async clearRecent() {
+    this._recent = [];
+    this._recentLoaded = true;
+    try { await window.api.settings.set('recentFiles', []); } catch { /* still clear the view */ }
+    this.renderRecent();
+  },
+
+  async forgetConnection(connId) {
+    await this.ensureRecent();
+    const next = this._recent.filter((item) => item.connId !== connId);
+    if (next.length === this._recent.length) return;
+    this._recent = next;
+    try { await window.api.settings.set('recentFiles', this._recent); } catch { /* ignore */ }
+    this.renderRecent();
+  },
+
+  async retargetRecent(connId, fromPath, toPath) {
+    await this.ensureRecent();
+    let changed = false;
+    this._recent = this._recent.map((item) => {
+      if (item.connId !== connId || item.path !== fromPath) return item;
+      changed = true;
+      return { ...item, path: toPath, name: this.basename(toPath) };
+    });
+    if (!changed) return;
+    try { await window.api.settings.set('recentFiles', this._recent); } catch { /* ignore */ }
+    this.renderRecent();
+  },
+
+  async openRecent(item) {
+    const conn = App.state.connections.find((c) => c.id === item.connId);
+    if (!conn) {
+      App.toast(t('recent.missing'), { type: 'warn' });
+      return;
+    }
+    const state = App.state.sessions[item.connId] && App.state.sessions[item.connId].state;
+    if (state !== 'connected') await App.connections.connect(item.connId);
+    else if (App.state.activeId !== item.connId || $('#workspace').hidden) await App.connections.setActive(item.connId);
+    if (App.state.activeId !== item.connId) return;
+    const session = App.state.sessions[item.connId];
+    if (!session || session.state !== 'connected') return;
+    await this.openFile({ path: item.path, name: item.name || this.basename(item.path), type: 'file' });
+  },
+
   async init(id) {
+    await this.ensureRecent();
     App.state.openFile = null;
     App.state.selected = null;
     this.closeEditor();
@@ -194,6 +309,7 @@ App.files = {
       this.updateGutter();
       if (markdown) this.setMdMode('preview');
       else editor.focus();
+      await this.rememberRecent(entry);
     } catch (e) {
       App.setStatus();
       App.toast(App.errMsg(e), { type: 'error', title: t('files.openFailed') });
@@ -244,6 +360,151 @@ App.files = {
     applyI18n(box);
     this.enhancePreview(box);
     this.loadMarkdownImages(box, token);
+    this.renderMermaid(box, token);
+  },
+
+  loadMermaid() {
+    if (window.mermaid && typeof window.mermaid.render === 'function') return Promise.resolve(window.mermaid);
+    if (this._mermaidLoading) return this._mermaidLoading;
+    this._mermaidLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/mermaid.min.js';
+      s.async = true;
+      s.onload = () => (window.mermaid && window.mermaid.render) ? resolve(window.mermaid) : reject(new Error('mermaid'));
+      s.onerror = () => reject(new Error('mermaid'));
+      document.head.append(s);
+    });
+    return this._mermaidLoading;
+  },
+
+  mermaidConfig() {
+    const cs = getComputedStyle(document.documentElement);
+    const pick = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+    const dark = document.documentElement.dataset.theme !== 'daylight';
+    const fg = pick('--fg', '#dce6f2');
+    const bg = pick('--bg', '#0a0e13');
+    const surface = pick('--surface-2', '#1c2430');
+    const accent = pick('--accent', '#2ee6a8');
+    const border = pick('--border', '#2a3544');
+    return {
+      startOnLoad: false,
+      securityLevel: 'strict',
+      htmlLabels: false,
+      suppressErrorRendering: true,
+      logLevel: 'fatal',
+      fontFamily: pick('--sans', 'sans-serif'),
+      theme: 'base',
+      themeVariables: {
+        darkMode: dark,
+        background: bg,
+        primaryColor: surface,
+        primaryTextColor: fg,
+        primaryBorderColor: accent,
+        secondaryColor: pick('--surface-3', '#242d3b'),
+        secondaryTextColor: fg,
+        tertiaryColor: pick('--surface', '#141a22'),
+        tertiaryTextColor: fg,
+        lineColor: pick('--fg-muted', '#93a0b4'),
+        textColor: fg,
+        mainBkg: surface,
+        nodeBorder: accent,
+        clusterBkg: pick('--surface', '#141a22'),
+        clusterBorder: border,
+        titleColor: fg,
+        edgeLabelBackground: bg,
+        actorBkg: surface,
+        actorBorder: accent,
+        actorTextColor: fg,
+        signalColor: fg,
+        signalTextColor: fg,
+        noteBkgColor: pick('--surface-3', '#242d3b'),
+        noteTextColor: fg,
+        noteBorderColor: border,
+      },
+      flowchart: { htmlLabels: false, useMaxWidth: true },
+      sequence: { useMaxWidth: true },
+    };
+  },
+
+  // Mermaid's SVG is drawn from untrusted remote text. Keep the picture, drop
+  // anything that could run or navigate: scripts, event handlers, and foreign
+  // HTML. Fragment links inside the SVG stay so arrow markers still resolve.
+  adoptMermaidSvg(svgText) {
+    const doc = new DOMParser().parseFromString(String(svgText || ''), 'image/svg+xml');
+    const root = doc.documentElement;
+    if (!root || root.localName !== 'svg' || doc.querySelector('parsererror')) throw new Error('bad svg');
+    const drop = new Set(['script', 'foreignobject', 'iframe', 'object', 'embed', 'audio', 'video', 'link']);
+    const cleanStyle = (value) => String(value || '').replace(/url\s*\(\s*(['"]?)(?!#)[^)'"]*\1\s*\)/gi, 'none');
+    const walk = (el) => {
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        const value = attr.value.trim();
+        if (name.startsWith('on')) { el.removeAttribute(attr.name); continue; }
+        if (name === 'href' || name.endsWith(':href')) {
+          if (value && !value.startsWith('#') && !/^https?:/i.test(value)) el.removeAttribute(attr.name);
+        }
+        if (name === 'style') el.setAttribute(attr.name, cleanStyle(value));
+      }
+      for (const child of [...el.children]) {
+        if (drop.has(child.localName.toLowerCase())) { child.remove(); continue; }
+        if (child.localName === 'style') child.textContent = cleanStyle(child.textContent);
+        walk(child);
+      }
+    };
+    walk(root);
+    return document.importNode(root, true);
+  },
+
+  showMermaidError(block) {
+    const view = block.querySelector('.md-mermaid-view');
+    const err = block.querySelector('.md-mermaid-error');
+    const pre = block.querySelector('pre');
+    if (view) { view.hidden = true; view.replaceChildren(); }
+    if (pre) pre.hidden = false;
+    if (err) { err.hidden = false; err.textContent = t('md.mermaidFailed'); }
+  },
+
+  async renderMermaid(box, token) {
+    const blocks = [...box.querySelectorAll('.md-mermaid')];
+    if (!blocks.length) return;
+    let api;
+    try { api = await this.loadMermaid(); }
+    catch {
+      if (token !== this._mdToken) return;
+      blocks.forEach((block) => this.showMermaidError(block));
+      return;
+    }
+    if (token !== this._mdToken) return;
+    api.initialize(this.mermaidConfig());
+    let n = 0;
+    for (const block of blocks) {
+      if (token !== this._mdToken) return;
+      const code = block.querySelector('code');
+      const src = code ? code.textContent : '';
+      const view = block.querySelector('.md-mermaid-view');
+      if (!view || src.length > 48 * 1024) { this.showMermaidError(block); continue; }
+      const id = `mmd${token}x${n++}`;
+      try {
+        const { svg } = await api.render(id, src);
+        if (token !== this._mdToken || !view.isConnected) return;
+        // render() also stamps this id onto the <svg>. Drop any scratch node
+        // mermaid left in <body> first, then clear the id so the picture we
+        // insert is not removed along with that scratch node.
+        const scratch = document.getElementById(id);
+        if (scratch && !view.contains(scratch)) scratch.remove();
+        const node = this.adoptMermaidSvg(svg);
+        node.removeAttribute('id');
+        view.replaceChildren(node);
+        view.hidden = false;
+        const pre = block.querySelector('pre');
+        const err = block.querySelector('.md-mermaid-error');
+        if (pre) pre.hidden = true;
+        if (err) { err.hidden = true; err.textContent = ''; }
+      } catch {
+        if (token !== this._mdToken) return;
+        this.showMermaidError(block);
+      }
+    }
   },
 
   // ---- preview reading aids (copy / zoom / anchors) ----
@@ -305,7 +566,7 @@ App.files = {
   },
 
   async copyCodeBlock(btn) {
-    const block = btn.closest('.md-code');
+    const block = btn.closest('.md-code, .md-mermaid');
     const code = block && block.querySelector('pre code');
     if (!code) return;
     if (await this.writeClipboard(code.textContent)) this.markCopied(btn);
@@ -435,6 +696,7 @@ App.files = {
     $('#editor-empty').hidden = false;
     $('#editor').value = '';
     $('#gutter').textContent = '';
+    this.renderRecent();
   },
 
   async save({ force = false } = {}) {
@@ -550,6 +812,7 @@ App.files = {
     if (!newName || newName === sel.name) return;
     const newPath = this.join(this.dirname(sel.path), newName);
     await App.guard(t('rename.guard'), () => window.api.fs.rename(id, sel.path, newPath));
+    await this.retargetRecent(id, sel.path, newPath);
     if (App.state.openFile && App.state.openFile.path === sel.path) this.closeEditor();
     App.state.selected = null; App.state.selectedEntry = null;
     await this.loadRoot();

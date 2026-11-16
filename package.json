@@ -23,6 +23,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "postinstall": "node scripts/copy-mermaid.js",
     "test": "node --test test/integration.test.js test/ssh-config.test.js test/markdown.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:sshconfig": "node --test test/ssh-config.test.js",
@@ -41,7 +42,8 @@
   },
   "devDependencies": {
     "electron": "45.3.1",
-    "electron-builder": "26.18.0"
+    "electron-builder": "26.18.0",
+    "mermaid": "^11.17.2"
   },
   "build": {
     "appId": "com.sshremotestudio.app",
@@ -60,8 +62,18 @@
     "npmRebuild": false,
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
@@ -77,8 +89,18 @@
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "deb", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "category": "Development",
       "maintainer": "SSH Remote Studio <ssh-remote-studio@users.noreply.github.com>",
@@ -87,8 +109,20 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "hardenedRuntime": false,

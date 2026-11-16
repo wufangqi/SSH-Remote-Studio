@@ -164,7 +164,7 @@ class RemoteManager extends EventEmitter {
     // The setting only controls whether listeners are opened, not whether the
     // user can see and manually start their configuration.
     entry.forwards.load(defs);
-    if (this.store.getSetting('restoreForwards', true) === false) return;
+    if (!this.store.restoreForwardsEnabled(connId)) return;
     (async () => {
       for (const d of defs) {
         try {
@@ -190,6 +190,10 @@ class RemoteManager extends EventEmitter {
   // ---- persistence delegates ----
   listConnections() { return this.store ? this.store.listConnections() : []; }
   saveConnection(conn) { return this.store.saveConnection(conn); }
+  setRestoreForwards(id, enabled) {
+    if (!this.store) return false;
+    return this.store.setRestoreForwards(id, enabled);
+  }
 
   // Import profiles produced by the ~/.ssh/config importer. Re-importing the
   // same alias updates the existing profile (so a saved password is kept)

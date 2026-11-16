@@ -62,6 +62,7 @@
   });
   $('#btn-save').addEventListener('click', () => App.files.save());
   $('#btn-md-mode').addEventListener('click', () => App.files.toggleMdMode());
+  $('#btn-recent-clear').addEventListener('click', () => App.files.clearRecent());
   $('#btn-close-file').addEventListener('click', async () => {
     const f = App.state.openFile;
     if (f && f.dirty) {
@@ -75,8 +76,33 @@
   $('#btn-add-forward').addEventListener('click', () => App.ports.openForm());
   $('#btn-add-forward-empty').addEventListener('click', () => App.ports.openForm());
   $('#btn-refresh-ports').addEventListener('click', () => App.ports.refresh());
+  // The switch belongs to the active connection. Connections that have never
+  // been toggled still follow the old global setting.
+  App.syncRestoreForwards = () => {
+    const box = $('#chk-restore-forwards');
+    if (!box) return;
+    const id = App.state.activeId;
+    const c = id && App.state.connections.find((x) => x.id === id);
+    if (c && typeof c.restoreForwards === 'boolean') box.checked = c.restoreForwards;
+    else box.checked = App.state.legacyRestoreForwards !== false;
+  };
+  App.setRestoreForwards = async (enabled) => {
+    const id = App.state.activeId;
+    const box = $('#chk-restore-forwards');
+    if (!id) return false;
+    try {
+      await api.connections.setRestoreForwards(id, enabled);
+      const c = App.state.connections.find((x) => x.id === id);
+      if (c) c.restoreForwards = !!enabled;
+      if (box) box.checked = !!enabled;
+      return true;
+    } catch {
+      if (box) box.checked = !enabled;
+      return false;
+    }
+  };
   $('#chk-restore-forwards').addEventListener('change', (e) => {
-    api.settings.set('restoreForwards', e.target.checked).catch(() => {});
+    App.setRestoreForwards(e.target.checked);
   });
 
   // ---------- theme ----------
@@ -119,6 +145,7 @@
     renderThemeButton();
     buildThemeMenu();
     if (App.ui.mini) App.mini.drawSpark();
+    if (App.files && !$('#markdown-preview').hidden) App.files.renderMarkdownPreview();
     try { await api.settings.set('ui.theme', id); } catch { /* non-fatal */ }
   };
 
@@ -252,6 +279,8 @@
       renderLangSeg();
       renderPinBtn();
 
+      await App.files.ensureRecent();
+      App.files.renderRecent();
       await App.connections.refresh();
 
       // Restore mini state if the window was reloaded while compact.
@@ -281,7 +310,8 @@
           await new Promise((r) => setTimeout(r, 250));
         }
       }
-      $('#chk-restore-forwards').checked = (await api.settings.get('restoreForwards', true)) !== false;
+      App.state.legacyRestoreForwards = (await api.settings.get('restoreForwards', true)) !== false;
+      App.syncRestoreForwards();
       App.setStatus();
     } catch (e) {
       App.toast(App.errMsg(e), { type: 'error', title: t('init.failed') });

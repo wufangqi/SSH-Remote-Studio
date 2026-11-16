@@ -171,12 +171,37 @@ App.ports = {
     const isLoopback = (h) => /^(127(\.\d+){3}|localhost|\[?::1\]?)$/i.test(h);
     const updateBindWarn = () => {
       const h = bindHost.value.trim();
-      bindWarn.hidden = curType === 'remote' || !h || isLoopback(h);
+      const exposed = !!h && !isLoopback(h);
+      bindWarn.textContent = t(curType === 'remote' ? 'fwd.bindHostWarn.remote' : 'fwd.bindHostWarn');
+      bindWarn.hidden = !exposed;
+    };
+    const applyFieldCopy = () => {
+      const key = (name) => t(`fwd.${curType}.${name}`);
+      bindHostLabel.textContent = key('bindHost');
+      bindPortLabel.textContent = key('bindPort');
+      bindHostHelp.textContent = key('bindHost.help');
+      bindPortHelp.textContent = key('bindPort.help');
+      autoHint.textContent = key('autoPort');
+      if (curType !== 'dynamic') {
+        destHostLabel.textContent = key('destHost');
+        destPortLabel.textContent = key('destPort');
+        destHostHelp.textContent = key('destHost.help');
+        destPortHelp.textContent = key('destPort.help');
+      }
     };
     bindHost.addEventListener('input', updateBindWarn);
 
-    const destHostField = el('div', { class: 'field' }, el('label', {}, t('fwd.destHost')), destHost);
-    const destPortField = el('div', { class: 'field' }, el('label', {}, t('fwd.destPort')), destPort);
+    const bindHostLabel = el('label');
+    const bindPortLabel = el('label');
+    const destHostLabel = el('label');
+    const destPortLabel = el('label');
+    const bindHostHelp = el('div', { class: 'field-hint' });
+    const bindPortHelp = el('div', { class: 'field-hint' });
+    const destHostHelp = el('div', { class: 'field-hint' });
+    const destPortHelp = el('div', { class: 'field-hint' });
+    const autoHint = el('div', { class: 'field-hint' });
+    const destHostField = el('div', { class: 'field' }, destHostLabel, destHost, destHostHelp);
+    const destPortField = el('div', { class: 'field' }, destPortLabel, destPort, destPortHelp);
     const destRow = el('div', { class: 'field-row' }, destHostField, destPortField);
 
     const radioRow = el('div', { class: 'radio-row' });
@@ -187,6 +212,7 @@ App.ports = {
       const isDyn = tp === 'dynamic';
       destRow.hidden = isDyn;
       bindPort.value = isDyn ? '1080' : '8080';
+      applyFieldCopy();
       for (const k of Object.keys(radios)) radios[k].classList.toggle('checked', k === tp);
       updateBindWarn();
     };
@@ -202,11 +228,11 @@ App.ports = {
       el('div', { class: 'field' }, el('label', {}, t('fwd.type')), radioRow),
       hint,
       el('div', { class: 'field-row', style: 'margin-top:12px' },
-        el('div', { class: 'field', style: 'flex:2' }, el('label', {}, t('fwd.bindHost')), bindHost),
-        el('div', { class: 'field' }, el('label', {}, t('fwd.bindPort')), bindPort)),
+        el('div', { class: 'field', style: 'flex:2' }, bindHostLabel, bindHost, bindHostHelp),
+        el('div', { class: 'field' }, bindPortLabel, bindPort, bindPortHelp)),
       bindWarn,
       destRow,
-      el('div', { class: 'field-hint' }, t('fwd.autoPort')),
+      autoHint,
       errLine);
     selectType('local');
 

@@ -81,6 +81,19 @@ app.whenReady().then(async () => {
     '',
   ].join('\n'));
   // Second markdown document: switching md -> md must re-render cleanly.
+  fs.writeFileSync(path.join(root, 'DIAGRAM.md'), [
+    '# Diagram',
+    '',
+    '```mermaid',
+    'graph TD',
+    '  A["Start <b>x</b>"] --> B',
+    '```',
+    '',
+    '```mermaid',
+    'this is not a diagram',
+    '```',
+    '',
+  ].join('\n'));
   fs.writeFileSync(path.join(root, 'NOTES.md'), [
     '# Notes',
     '',
@@ -172,6 +185,7 @@ app.whenReady().then(async () => {
   check('sidebar shows connection', await exec(`document.querySelectorAll('#conn-list .conn-item').length>=1`));
   check('tree lists hello.txt', await exec(`Array.from(document.querySelectorAll('#tree .tname')).some(n=>n.textContent==='hello.txt')`));
   check('tree lists project dir', await exec(`Array.from(document.querySelectorAll('#tree .tname')).some(n=>n.textContent==='project')`));
+  check('editor starts on the recent page', await exec(`!document.getElementById('editor-empty').hidden && document.getElementById('editor-header').hidden && document.getElementById('recent-title').textContent===t('recent.title')`));
 
   // open + edit + save a remote file through the editor
   await exec(`App.files.openFile({path:'/hello.txt',name:'hello.txt',type:'file'})`);
@@ -179,6 +193,8 @@ app.whenReady().then(async () => {
   check('editor shows remote content', await exec(`document.getElementById('editor').value.includes('hello remote')`));
   await exec(`(async()=>{const ed=document.getElementById('editor');ed.value=ed.value+'edited-through-ui\\n';App.files.onEditorInput();await App.files.save();})()`);
   check('edit saved to remote', await exec(`(async()=>{const d=await window.api.fs.read('${connId}','/hello.txt');return d.content.includes('edited-through-ui');})()`));
+  check('opened file is recorded in recent', await exec(`(async()=>{const list=await window.api.settings.get('recentFiles',[]);return list.some(x=>x.connId==='${connId}'&&x.path==='/hello.txt');})()`));
+  check('recent row is marked with its connection', await exec(`(() => { App.files.renderRecent(); const row = document.querySelector('#recent-list .recent-item'); if (!row) return false; const name = row.querySelector('.recent-conn-name'); const host = row.querySelector('.recent-conn-host'); return !!name && name.textContent === 'smoke-host' && !!host && host.textContent.includes('@'); })()`));
   await shot('screenshot-files.png');
 
   // ---- saving over an out-of-band edit must prompt, not clobber ----
@@ -207,6 +223,14 @@ app.whenReady().then(async () => {
   await exec(`(() => { const i = document.querySelectorAll('#modal input')[0]; i.value = '0.0.0.0'; i.dispatchEvent(new Event('input')); })()`);
   await sleep(100);
   check('non-loopback listen address warns', await exec(`Array.from(document.querySelectorAll('#modal .field-hint.warn')).some(n => !n.hidden)`));
+  await exec(`Array.from(document.querySelectorAll('#modal .radio-row label')).find((n) => n.textContent.includes(t('fwd.remote'))).click()`);
+  await sleep(50);
+  check('remote forward form explains each side', await exec(`(() => {
+    const text = document.getElementById('modal').textContent;
+    return text.includes(t('fwd.remote.bindHost')) && text.includes(t('fwd.remote.bindPort.help'))
+      && text.includes(t('fwd.remote.destHost')) && text.includes(t('fwd.remote.destPort.help'))
+      && text.includes(t('fwd.remote.autoPort'));
+  })()`));
   await exec(`document.getElementById('modal-overlay').click()`);
 
   // add a local forward through the real forwarding API + panel
@@ -501,6 +525,30 @@ app.whenReady().then(async () => {
   await exec(`App.files.closeEditor()`);
   check('closing the file closes an open lightbox', await exec(`document.getElementById('md-lightbox').hidden`));
 
+  await exec(`App.files.openFile({path:'/DIAGRAM.md',name:'DIAGRAM.md',type:'file'})`);
+  const mermaid = await exec(`(async () => {
+    for (let i = 0; i < 50; i++) {
+      const blocks = [...document.querySelectorAll('#markdown-preview .md-mermaid')];
+      const svg = blocks[0] && blocks[0].querySelector('.md-mermaid-view svg');
+      const failed = blocks[1] && !blocks[1].querySelector('.md-mermaid-error').hidden;
+      if ((svg || blocks[0] && !blocks[0].querySelector('.md-mermaid-error').hidden) && failed) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const blocks = [...document.querySelectorAll('#markdown-preview .md-mermaid')];
+    const svg = blocks[0] && blocks[0].querySelector('.md-mermaid-view svg');
+    const bad = blocks[1];
+    const box = document.getElementById('markdown-preview');
+    return {
+      drawn: !!svg && /Start/.test(svg.textContent || '') && !svg.querySelector('script, foreignObject, b'),
+      sourceHidden: !!(blocks[0] && blocks[0].querySelector('pre').hidden),
+      failed: !!(bad && !bad.querySelector('.md-mermaid-error').hidden && !bad.querySelector('pre').hidden && /not a diagram/.test(bad.querySelector('pre').textContent)),
+      inert: !box.querySelector('[onclick], [onload], [onerror], script'),
+    };
+  })()`);
+  check('mermaid flowchart renders to svg', mermaid.drawn && mermaid.sourceHidden);
+  check('broken mermaid keeps its source', mermaid.failed);
+  check('mermaid preview has no script or handlers', mermaid.inert);
+
   // ---- D-1: unbreakable tokens must wrap, never push the pane sideways ----
   // The window is narrowed to ~965x700: at that size the reading column is far
   // shorter than every fixture token, so a missing overflow-wrap shows up
@@ -643,15 +691,28 @@ app.whenReady().then(async () => {
   await exec(`App.layout.setTreeWidth(260)`);
   check('file tree width resizes', (await waitWidth('tree-pane', 260)) === 260);
 
-  // ---- with auto-start off, saved forwards remain visible and startable ----
-  await exec(`window.api.settings.set('restoreForwards', false)`);
+  // ---- auto-start is per connection; turning it off keeps the rows ----
+  await exec(`(async () => { if (App.state.activeId !== '${importedId}') await App.connections.setActive('${importedId}'); })()`);
+  await sleep(300);
+  check('auto-start switch follows the active connection', await exec(`(async () => App.state.activeId === '${importedId}' && await App.setRestoreForwards(false) && document.getElementById('chk-restore-forwards').checked === false)()`));
+  await exec(`App.connections.setActive('${connId}')`);
+  await sleep(400);
+  check('another connection keeps auto-start on', await exec(`App.state.activeId === '${connId}' && document.getElementById('chk-restore-forwards').checked === true`));
+  check('auto-start is stored on each connection', await exec(`(async () => {
+    const list = await window.api.connections.list();
+    const target = list.find((c) => c.id === '${importedId}');
+    const other = list.find((c) => c.id === '${connId}');
+    return target && target.restoreForwards === false && (!other || other.restoreForwards !== false);
+  })()`));
+  await exec(`App.connections.setActive('${importedId}')`);
+  await sleep(300);
   await exec(`window.api.session.disconnect('${importedId}')`);
   await sleep(300);
   await exec(`App.connections.connect('${importedId}')`);
   await sleep(900);
   check('saved forward stays visible when auto-start is off', await exec(`window.api.forward.list('${importedId}').then(l => l.length >= 1 && l.every(f => f.status !== 'active'))`));
   check('disconnected saved forward offers manual start', await exec(`document.querySelectorAll('#ports-body tr').length >= 1 && document.querySelectorAll('#ports-body tr .fwd-actions .ghost').length >= 2 && !document.querySelector('#ports-body tr .status-pill.active')`));
-  await exec(`window.api.settings.set('restoreForwards', true)`);
+  await exec(`window.api.connections.setRestoreForwards('${importedId}', true)`);
 
   check('no renderer console errors', consoleErrors.length === 0);
   if (consoleErrors.length) console.log('CONSOLE ERRORS:\n' + consoleErrors.join('\n'));

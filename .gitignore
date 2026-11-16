@@ -11,3 +11,4 @@ dist/
 *.bdic
 .DS_Store
 test/.tmp-*/
+src/renderer/vendor/

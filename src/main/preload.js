@@ -35,6 +35,7 @@ const api = {
     list: () => call('connections:list'),
     save: (conn) => call('connections:save', conn),
     delete: (id) => call('connections:delete', id),
+    setRestoreForwards: (id, enabled) => call('connections:setRestoreForwards', id, enabled),
   },
   sshconfig: {
     preview: () => call('sshconfig:preview'),

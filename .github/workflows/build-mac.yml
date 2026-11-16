@@ -1,0 +1,35 @@
+name: macOS package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+    branches: [feat/ssh-config-markdown-layout]
+
+jobs:
+  package:
+    name: dmg + zip (arm64, x64)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Package unsigned dmg and zip
+        env:
+          # No Apple certificate in CI. identity: null is also set in package.json.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.dmg.blockmap
+            release/*.zip.blockmap

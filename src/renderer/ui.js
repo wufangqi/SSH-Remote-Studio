@@ -23,6 +23,7 @@ window.App = {
     selected: null,      // selected remote entry path
     selectedEntry: null, // selected remote entry object
     openFile: null,      // { path, content, original, binary, size, mtime, mode, dirty }
+    legacyRestoreForwards: true,
     forwards: [],
     appInfo: null,
   },

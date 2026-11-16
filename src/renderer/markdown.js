@@ -143,7 +143,21 @@
   // The copy button carries no data itself: files.js reads the sibling
   // <pre><code> textContent. That keeps remote content out of attributes and
   // out of inline handlers (CSP script-src 'self' blocks the latter anyway).
+  // Mermaid stays escaped text until the preview layer draws it. The source
+  // never becomes markup here, so a remote diagram cannot carry a handler.
+  function mermaidHtml(text) {
+    return `<div class="md-code md-mermaid">`
+      + `<div class="md-code-head"><span class="md-code-lang">mermaid</span>`
+      + `<button type="button" class="md-code-copy" data-md-copy data-i18n-title="md.copy" data-i18n-aria="md.copy">`
+      + `<svg class="ic" aria-hidden="true"><use href="#i-copy"></use></svg>`
+      + `<span data-i18n="md.copy"></span></button></div>`
+      + `<pre class="md-mermaid-src"><code class="language-mermaid">${escapeHtml(text)}</code></pre>`
+      + `<div class="md-mermaid-view" hidden></div>`
+      + `<p class="md-mermaid-error" hidden></p></div>`;
+  }
+
   function codeHtml(text, lang) {
+    if (String(lang || '').toLowerCase() === 'mermaid') return mermaidHtml(text);
     const cls = lang ? ` class="language-${escapeHtml(lang)}"` : '';
     const label = lang ? escapeHtml(lang) : 'text';
     return `<div class="md-code">`

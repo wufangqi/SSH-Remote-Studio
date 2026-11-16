@@ -37,6 +37,7 @@ App.connections = {
           el('button', { class: 'icon-btn danger', title: t('sidebar.delete'), onclick: (e) => { e.stopPropagation(); this.remove(c.id); } }, icon('trash'))));
       list.append(item);
     }
+    if (App.files && App.files.renderRecent) App.files.renderRecent();
   },
 
   async onItemClick(id) {
@@ -77,6 +78,7 @@ App.connections = {
       try { await App.files.init(id); } catch (e) { App.toast(App.errMsg(e), { type: 'error', title: t('files.listFailed') }); }
       await App.ports.refresh(id);
     }
+    App.syncRestoreForwards();
   },
 
   async connect(id) {
@@ -119,6 +121,7 @@ App.connections = {
     if (!ok) return;
     try {
       await window.api.connections.delete(id);
+      await App.files.forgetConnection(id);
       delete App.state.sessions[id];
       if (App.state.activeId === id) {
         App.state.activeId = null;

@@ -184,9 +184,14 @@
               </div>
               <div id="markdown-preview" hidden></div>
               <div id="editor-empty">
-                <span class="empty-ic"><svg class="ic"><use href="#i-file"/></svg></span>
-                <p data-i18n="editor.empty1">从左侧目录树选择一个文件以打开</p>
-                <p class="muted" data-i18n="editor.empty2">支持查看与编辑文本文件，Ctrl+S 保存到远程</p>
+                <div id="recent-files">
+                  <div class="recent-head">
+                    <span id="recent-title" data-i18n="recent.title">最近打开</span>
+                    <button id="btn-recent-clear" type="button" data-i18n="recent.clear">清空</button>
+                  </div>
+                  <ul id="recent-list"></ul>
+                  <p id="recent-empty" class="recent-empty" hidden data-i18n="recent.empty">还没有打开过文件。从左侧目录树选择一个文件。</p>
+                </div>
               </div>
             </div>
           </div>

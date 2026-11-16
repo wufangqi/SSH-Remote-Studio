@@ -76,6 +76,7 @@ function registerIpc({ manager, store, getWindow, rebuildMenu }) {
   handle('connections:list', () => manager.listConnections());
   handle('connections:save', (conn) => manager.saveConnection(conn));
   handle('connections:delete', (id) => manager.deleteConnection(id));
+  handle('connections:setRestoreForwards', (id, enabled) => manager.setRestoreForwards(id, enabled));
 
   // ---- ~/.ssh/config import ----
   handle('sshconfig:preview', () => {

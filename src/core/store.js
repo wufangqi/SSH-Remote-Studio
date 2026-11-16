@@ -151,6 +151,11 @@ class Store {
         return h;
       });
     }
+    // The ports-panel switch is not part of the connection form. An edit that
+    // omits it must keep the value already stored for this connection.
+    if (prev && input.restoreForwards === undefined && typeof prev.restoreForwards === 'boolean') {
+      conn.restoreForwards = prev.restoreForwards;
+    }
     if (idx >= 0) this.data.connections[idx] = conn;
     else this.data.connections.push(conn);
     this._save();
@@ -197,6 +202,23 @@ class Store {
     if (list && list.length) this.data.forwards[connId] = list;
     else delete this.data.forwards[connId];
     this._save();
+  }
+
+  // Per-connection auto-start. Absent means "not chosen yet": fall back to the
+  // old global setting so a user who turned it off keeps that behavior until
+  // they set the switch on a specific connection.
+  setRestoreForwards(connId, enabled) {
+    const conn = this.data.connections.find((c) => c.id === connId);
+    if (!conn) return false;
+    conn.restoreForwards = !!enabled;
+    this._save();
+    return true;
+  }
+
+  restoreForwardsEnabled(connId) {
+    const conn = this.data.connections.find((c) => c.id === connId);
+    if (conn && typeof conn.restoreForwards === 'boolean') return conn.restoreForwards;
+    return this.getSetting('restoreForwards', true) !== false;
   }
 
   // ---- settings ----

@@ -79,6 +79,27 @@ describe('Markdown renderer', () => {
     assert.ok(!html.includes('<b>hi</b>'));
   });
 
+  it('keeps mermaid fences escaped until the preview draws them', () => {
+    const html = md.render([
+      '```mermaid',
+      'graph TD',
+      '  A["<img src=x onerror=alert(1)>"] --> B',
+      '```',
+      '',
+      '```Mermaid',
+      'sequenceDiagram',
+      '  Alice->>Bob: hi',
+      '```',
+    ].join('\n'));
+    assert.equal((html.match(/class="md-code md-mermaid"/g) || []).length, 2);
+    assert.match(html, /<code class="language-mermaid">/);
+    assert.match(html, /graph TD/);
+    assert.ok(!html.includes('<img'));
+    assert.ok(!html.includes('<script'));
+    assert.ok(!/\son[a-z]+="/.test(html));
+    assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  });
+
   it('marks up table column alignment from the separator row', () => {
     const html = md.render([
       '| Left | Center | Right | Default |',
