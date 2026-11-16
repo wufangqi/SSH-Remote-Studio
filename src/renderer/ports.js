@@ -54,9 +54,9 @@ App.ports = {
       }, icon('copy'));
       const tr = el('tr', { 'data-fid': f.id },
         el('td', {}, el('span', { class: 'fwd-type ' + f.type }, typeLabel[f.type] || f.type)),
-        el('td', {}, el('span', { class: 'fwd-label', title: f.error || f.label }, f.label)),
+        el('td', {}, el('span', { class: 'fwd-label', title: App.fwdErr(f) || f.label }, f.label)),
         el('td', {}, el('span', { class: 'fwd-addr-wrap' }, el('span', { class: 'fwd-addr' }, `${f.bindHost}:${f.bindPort}`), copyBtn)),
-        el('td', {}, el('span', { class: 'status-pill ' + f.status, title: f.error || '' }, el('span', { class: 'sd' }), statusText(f))),
+        el('td', {}, el('span', { class: 'status-pill ' + f.status, title: App.fwdErr(f) }, el('span', { class: 'sd' }), statusText(f))),
         el('td', { class: 'mono' }, String(f.connections || 0)),
         el('td', {},
           el('div', { class: 'fwd-traffic' },
@@ -129,7 +129,7 @@ App.ports = {
       const f = await window.api.forward.restart(id, fid);
       await this.refresh(id);
       if (f && f.status === 'active') App.toast(t('toast.fwdStarted', { label: f.label }), { type: 'success' });
-      else App.toast(t('toast.fwdFailed', { msg: (f && f.error) || '' }), { type: 'error', title: t('fwd.errorTitle') });
+      else App.toast(t('toast.fwdFailed', { msg: App.fwdErr(f) }), { type: 'error', title: t('fwd.errorTitle') });
     } catch (e) {
       App.toast(App.errMsg(e), { type: 'error', title: t('fwd.startFailed') });
     }
@@ -167,6 +167,13 @@ App.ports = {
     const destHost = el('input', { type: 'text', value: '127.0.0.1' });
     const destPort = el('input', { type: 'number', value: '80', min: '1', max: '65535' });
     const hint = el('div', { class: 'field-hint' }, types.local.hint);
+    const bindWarn = el('div', { class: 'field-hint warn', hidden: true }, t('fwd.bindHostWarn'));
+    const isLoopback = (h) => /^(127(\.\d+){3}|localhost|\[?::1\]?)$/i.test(h);
+    const updateBindWarn = () => {
+      const h = bindHost.value.trim();
+      bindWarn.hidden = curType === 'remote' || !h || isLoopback(h);
+    };
+    bindHost.addEventListener('input', updateBindWarn);
 
     const destHostField = el('div', { class: 'field' }, el('label', {}, t('fwd.destHost')), destHost);
     const destPortField = el('div', { class: 'field' }, el('label', {}, t('fwd.destPort')), destPort);
@@ -181,6 +188,7 @@ App.ports = {
       destRow.hidden = isDyn;
       bindPort.value = isDyn ? '1080' : '8080';
       for (const k of Object.keys(radios)) radios[k].classList.toggle('checked', k === tp);
+      updateBindWarn();
     };
     for (const tp of ['local', 'remote', 'dynamic']) {
       const lbl = el('label', {}, types[tp].name);
@@ -196,6 +204,7 @@ App.ports = {
       el('div', { class: 'field-row', style: 'margin-top:12px' },
         el('div', { class: 'field', style: 'flex:2' }, el('label', {}, t('fwd.bindHost')), bindHost),
         el('div', { class: 'field' }, el('label', {}, t('fwd.bindPort')), bindPort)),
+      bindWarn,
       destRow,
       el('div', { class: 'field-hint' }, t('fwd.autoPort')),
       errLine);
@@ -218,7 +227,7 @@ App.ports = {
         await this.refresh();
         close();
         if (fwd.status !== 'active') {
-          App.toast(t('toast.fwdFailed', { msg: fwd.error || '' }), { type: 'error', title: t('fwd.errorTitle'), timeout: 8000 });
+          App.toast(t('toast.fwdFailed', { msg: App.fwdErr(fwd) }), { type: 'error', title: t('fwd.errorTitle'), timeout: 8000 });
         } else {
           App.toast(t('toast.fwdStarted', { label: fwd.label }), { type: 'success' });
         }

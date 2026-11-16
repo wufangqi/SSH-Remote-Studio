@@ -34,7 +34,9 @@ class Store {
   _save() {
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), 'utf8');
+    // 0600: on POSIX the plaintext fallback (no OS keyring) would otherwise
+    // leave credentials readable by every local user.
+    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmp, this.file);
   }
 
@@ -71,6 +73,18 @@ class Store {
       delete out[f];
       out[`has_${f}`] = !!has;
     }
+    // Jump hosts use the same secret fields, but nested inside `jump`.
+    if (Array.isArray(out.jump)) {
+      out.jump = out.jump.map((hop) => {
+        const h = { ...hop };
+        for (const f of SECRET_FIELDS) {
+          const has = h[f] != null && h[f] !== '';
+          delete h[f];
+          if (has) h[`has_${f}`] = true;
+        }
+        return h;
+      });
+    }
     return out;
   }
 
@@ -88,28 +102,57 @@ class Store {
       if (dec !== undefined) out[f] = dec;
       else delete out[f];
     }
+    if (Array.isArray(out.jump)) {
+      out.jump = out.jump.map((hop) => {
+        const h = { ...hop };
+        for (const f of SECRET_FIELDS) {
+          if (h[f] === undefined) continue;
+          const dec = this._decryptSecret(h[f]);
+          if (dec !== undefined) h[f] = dec;
+          else delete h[f];
+        }
+        return h;
+      });
+    }
     return out;
   }
 
+  // Secret field semantics: absent = keep the stored value, null/'' = clear it,
+  // a string = replace it. The connection form uses null to offer an explicit
+  // "clear saved credential" action.
   saveConnection(input) {
     const conn = { ...input };
     if (!conn.id) conn.id = genId('conn');
     if (!conn.name) conn.name = `${conn.username}@${conn.host}:${conn.port || 22}`;
+    const idx = this.data.connections.findIndex((c) => c.id === conn.id);
+    const prev = idx >= 0 ? this.data.connections[idx] : null;
     for (const f of SECRET_FIELDS) {
-      if (conn[f] != null && conn[f] !== '') conn[f] = this._encryptSecret(conn[f]);
+      const v = input[f];
+      if (v === null || v === '') delete conn[f];
+      else if (v !== undefined) conn[f] = this._encryptSecret(v);
+      else if (prev && prev[f] !== undefined) conn[f] = prev[f];
       else delete conn[f];
     }
-    const idx = this.data.connections.findIndex((c) => c.id === conn.id);
-    if (idx >= 0) {
-      // preserve previously stored secrets if not re-supplied
-      const prev = this.data.connections[idx];
-      for (const f of SECRET_FIELDS) {
-        if (conn[f] === undefined && prev[f] !== undefined) conn[f] = prev[f];
-      }
-      this.data.connections[idx] = conn;
-    } else {
-      this.data.connections.push(conn);
+    if (Array.isArray(conn.jump)) {
+      const prevHops = prev && Array.isArray(prev.jump) ? prev.jump : [];
+      conn.jump = conn.jump.map((hop) => {
+        const h = { ...hop };
+        const prevHop = prevHops.find((p) => p.host === h.host
+          && Number(p.port || 22) === Number(h.port || 22)
+          && (p.username || '') === (h.username || ''));
+        for (const f of SECRET_FIELDS) {
+          delete h[`has_${f}`];
+          const v = hop[f];
+          if (v === null || v === '') delete h[f];
+          else if (v !== undefined) h[f] = this._encryptSecret(v);
+          else if (prevHop && prevHop[f] !== undefined) h[f] = prevHop[f];
+          else delete h[f];
+        }
+        return h;
+      });
     }
+    if (idx >= 0) this.data.connections[idx] = conn;
+    else this.data.connections.push(conn);
     this._save();
     return this._sanitize(conn);
   }

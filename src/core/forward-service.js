@@ -102,7 +102,8 @@ class ForwardService extends EventEmitter {
     this.maxAttempts = Math.max(1, Number(maxAttempts) || 5);
     this.retryDelayMs = Math.max(0, Number(retryDelayMs) || 0);
     this._remoteHandler = null;
-    this._onSessionClose = () => this._markAllStopped('SSH 连接已关闭');
+    this._remoteHandlerClient = null;
+    this._onSessionClose = () => this._markAllStopped('SSH 连接已关闭', 'ECLOSED');
     session.on('close', this._onSessionClose);
   }
 
@@ -118,6 +119,7 @@ class ForwardService extends EventEmitter {
       destPort: rec.destPort,
       status: rec.status,
       error: rec.error || null,
+      errorCode: rec.errorCode || null,
       attempts: rec.attempts || 0,
       maxAttempts: this.maxAttempts,
       connections: rec.connections,
@@ -128,10 +130,11 @@ class ForwardService extends EventEmitter {
     };
   }
 
+  // Language-neutral: the UI localizes the type badge, so the label carries
+  // only addresses and never prose.
   _label(rec) {
-    if (rec.type === 'local') return `${rec.bindHost}:${rec.bindPort} → ${rec.destHost}:${rec.destPort}`;
-    if (rec.type === 'remote') return `远程 ${rec.bindHost}:${rec.bindPort} → ${rec.destHost}:${rec.destPort}`;
-    return `SOCKS5 ${rec.bindHost}:${rec.bindPort}`;
+    if (rec.type === 'dynamic') return `SOCKS5 ${rec.bindHost}:${rec.bindPort}`;
+    return `${rec.bindHost}:${rec.bindPort} → ${rec.destHost}:${rec.destPort}`;
   }
 
   _newRecord(def, type) {
@@ -140,10 +143,15 @@ class ForwardService extends EventEmitter {
       id, type,
       bindHost: def.bindHost || '127.0.0.1',
       bindPort: def.bindPort,
+      // What the user asked for. bindPort becomes the resolved port once
+      // listening, but a restart must re-request 0 rather than pin the
+      // ephemeral port that happened to be free last time.
+      requestedBindPort: def.bindPort,
       destHost: def.destHost,
       destPort: def.destPort,
       status: 'starting',
       error: null,
+      errorCode: null,
       attempts: 0,
       connections: 0,
       bytesUp: 0,
@@ -154,6 +162,24 @@ class ForwardService extends EventEmitter {
   }
 
   get(id) { return this.forwards.get(id) || null; }
+
+  // Load saved definitions as disconnected records without opening listeners.
+  // This keeps the user's forward configuration visible after a restart even
+  // when "restore on startup" is off; they can start each row manually.
+  load(defs = []) {
+    const added = [];
+    for (const def of defs) {
+      if (!def || !['local', 'remote', 'dynamic'].includes(def.type)) continue;
+      if (this.forwards.has(def.id)) continue;
+      const rec = this._newRecord(def, def.type);
+      rec.status = 'stopped';
+      rec.attempts = 0;
+      this.forwards.set(rec.id, rec);
+      added.push(this._public(rec));
+    }
+    if (added.length) this.emit('changed', this.list());
+    return added;
+  }
 
   // Create a record and start it, retrying up to maxAttempts. Resolves with
   // the record even when it ends 'disconnected' (the caller decides what to
@@ -188,6 +214,7 @@ class ForwardService extends EventEmitter {
     await this.session.connect();
     rec.attempts = 0;
     rec.error = null;
+    rec.errorCode = null;
     await this._startWithRetry(rec);
     return this._public(rec);
   }
@@ -199,12 +226,15 @@ class ForwardService extends EventEmitter {
         await this._bind(rec);
         rec.status = 'active';
         rec.error = null;
+        rec.errorCode = null;
         rec.attempts = 0;
         this.emit('added', this._public(rec));
         return true;
       } catch (e) {
+        const fe = friendlyError(e, rec.type === 'remote' ? '远程转发' : '监听');
         rec.status = 'error';
-        rec.error = friendlyError(e, rec.type === 'remote' ? '远程转发' : '监听').friendly || e.message;
+        rec.error = fe.friendly || e.message;
+        rec.errorCode = fe.code || null;
         this.emit('changed', this.list());
         if (attempt < this.maxAttempts) await sleep(this.retryDelayMs);
       }
@@ -221,6 +251,24 @@ class ForwardService extends EventEmitter {
     if (rec.type === 'local') return this._bindLocal(rec);
     if (rec.type === 'dynamic') return this._bindDynamic(rec);
     return this._bindRemote(rec);
+  }
+
+  async _listen(rec, server) {
+    try {
+      const addr = await listen(server, rec.bindHost, rec.requestedBindPort);
+      rec.bindPort = addr.port;
+      rec.server = server;
+      // listen() drops its one-shot error handler once bound; keep a permanent
+      // one so a later server error cannot become an uncaught exception.
+      server.on('error', (e) => this.emit('forward-error', { id: rec.id, error: friendlyError(e, '监听') }));
+    } catch (e) {
+      try { server.close(); } catch {}
+      if (rec.sockets) {
+        for (const s of rec.sockets) { try { s.destroy(); } catch {} }
+        rec.sockets.clear();
+      }
+      throw e;
+    }
   }
 
   async _bindLocal(rec) {
@@ -241,16 +289,7 @@ class ForwardService extends EventEmitter {
         pipePair(socket, stream, (n, dir) => { if (dir === 'up') rec.bytesUp += n; else rec.bytesDown += n; });
       });
     });
-    try {
-      const addr = await listen(server, rec.bindHost, rec.bindPort);
-      rec.bindPort = addr.port;
-      rec.server = server;
-    } catch (e) {
-      try { server.close(); } catch {}
-      for (const s of sockets) { try { s.destroy(); } catch {} }
-      sockets.clear();
-      throw e;
-    }
+    await this._listen(rec, server);
   }
 
   async _bindDynamic(rec) {
@@ -264,16 +303,7 @@ class ForwardService extends EventEmitter {
       this.emit('connection', { id: rec.id, type: 'dynamic' });
       this._handleSocks(socket, rec, client).catch(() => { try { socket.destroy(); } catch {} });
     });
-    try {
-      const addr = await listen(server, rec.bindHost, rec.bindPort);
-      rec.bindPort = addr.port;
-      rec.server = server;
-    } catch (e) {
-      try { server.close(); } catch {}
-      for (const s of sockets) { try { s.destroy(); } catch {} }
-      sockets.clear();
-      throw e;
-    }
+    await this._listen(rec, server);
   }
 
   async _bindRemote(rec) {
@@ -281,7 +311,7 @@ class ForwardService extends EventEmitter {
     this._ensureRemoteHandler();
     let boundPort;
     try {
-      boundPort = await pcall(client.forwardIn.bind(client), rec.bindHost, rec.bindPort);
+      boundPort = await pcall(client.forwardIn.bind(client), rec.bindHost, rec.requestedBindPort);
     } catch (e) {
       throw friendlyError(e, '远程转发');
     }
@@ -289,7 +319,11 @@ class ForwardService extends EventEmitter {
   }
 
   _ensureRemoteHandler() {
-    if (this._remoteHandler) return;
+    const client = this.client;
+    if (this._remoteHandler && this._remoteHandlerClient === client) return;
+    // The session may have been replaced by a reconnect; the handler belongs
+    // to a specific ssh2 Client and must be re-attached to the live one.
+    this._detachRemoteHandler();
     // ssh2 Client emits 'tcp connection' (info, accept, reject) for incoming
     // remote-forwarded connections; accept() yields the channel stream.
     const handler = (info, accept, reject) => {
@@ -306,8 +340,17 @@ class ForwardService extends EventEmitter {
       });
       socket.on('error', () => stream.destroy());
     };
-    this.client.on('tcp connection', handler);
+    client.on('tcp connection', handler);
     this._remoteHandler = handler;
+    this._remoteHandlerClient = client;
+  }
+
+  _detachRemoteHandler() {
+    if (this._remoteHandler && this._remoteHandlerClient) {
+      try { this._remoteHandlerClient.removeListener('tcp connection', this._remoteHandler); } catch {}
+    }
+    this._remoteHandler = null;
+    this._remoteHandlerClient = null;
   }
 
   async _handleSocks(socket, rec, client) {
@@ -363,6 +406,7 @@ class ForwardService extends EventEmitter {
     await this._teardown(rec);
     rec.status = 'stopped';
     rec.error = null;
+    rec.errorCode = null;
     this.emit('changed', this.list());
     return this._public(rec);
   }
@@ -397,30 +441,26 @@ class ForwardService extends EventEmitter {
       const stillRemote = [...this.forwards.values()].some(
         (r) => r.type === 'remote' && r.id !== rec.id && r.status === 'active'
       );
-      if (!stillRemote && this._remoteHandler) {
-        this.client.removeListener('tcp connection', this._remoteHandler);
-        this._remoteHandler = null;
-      }
+      if (!stillRemote) this._detachRemoteHandler();
     }
   }
 
-  _markAllStopped(reason) {
+  _markAllStopped(reason, code) {
     for (const rec of this.forwards.values()) {
       if (rec.server) { try { rec.server.close(); } catch {} rec.server = null; }
       if (rec.sockets) {
         for (const s of rec.sockets) { try { s.destroy(); } catch {} }
         rec.sockets.clear();
       }
-      // Only live states transition; records the user stopped stay stopped.
+      // Only live states transition; records the user stopped stay stopped
+      // and keep their clean (error-free) state.
       if (rec.status === 'active' || rec.status === 'starting' || rec.status === 'error') {
         rec.status = 'disconnected';
+        rec.error = reason;
+        rec.errorCode = code || null;
       }
-      rec.error = reason;
     }
-    if (this._remoteHandler && this.client) {
-      try { this.client.removeListener('tcp connection', this._remoteHandler); } catch {}
-      this._remoteHandler = null;
-    }
+    this._detachRemoteHandler();
     this.emit('changed', this.list());
   }
 
@@ -434,8 +474,15 @@ class ForwardService extends EventEmitter {
 
   destroy() {
     this.session.removeListener('close', this._onSessionClose);
+    this._detachRemoteHandler();
     for (const rec of this.forwards.values()) {
-      if (rec.server) { try { rec.server.close(); } catch {} }
+      if (rec.server) { try { rec.server.close(); } catch {} rec.server = null; }
+      // server.close() alone leaves established connections open, which would
+      // keep the process alive past quit.
+      if (rec.sockets) {
+        for (const s of rec.sockets) { try { s.destroy(); } catch {} }
+        rec.sockets.clear();
+      }
     }
     this.forwards.clear();
     this.removeAllListeners();

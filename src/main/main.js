@@ -22,14 +22,14 @@ const MENU_TEXT = {
     view: '视图(&V)', mini: '小窗模式', reload: '重新加载', devtools: '开发者工具',
     actualSize: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
     help: '帮助(&H)', about: '关于 SSH Remote Studio', aboutTitle: '关于',
-    aboutDetail: (v, p, a) => `版本 ${v}\n通过 SSH 打开远程文件夹并管理端口转发。\n平台: ${p} (${a})`,
+    aboutDetail: (v, p, a) => `版本 ${v}\nSSH 隧道工作台：图形化管理本地/远程/动态转发，隧道可保存、可恢复、可观测。\n平台: ${p} (${a})`,
   },
   en: {
     file: '&File', newConn: 'New Connection', quit: 'Quit',
     view: '&View', mini: 'Mini Mode', reload: 'Reload', devtools: 'Developer Tools',
     actualSize: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Full Screen',
     help: '&Help', about: 'About SSH Remote Studio', aboutTitle: 'About',
-    aboutDetail: (v, p, a) => `Version ${v}\nOpen remote folders over SSH and manage port forwards.\nPlatform: ${p} (${a})`,
+    aboutDetail: (v, p, a) => `Version ${v}\nSSH tunnel workspace: manage local, remote and dynamic forwards with persistence, recovery and live traffic.\nPlatform: ${p} (${a})`,
   },
 };
 
@@ -46,13 +46,18 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       spellcheck: false,
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { win = null; });
+
+  // The renderer is a single local page; it never navigates anywhere.
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) e.preventDefault();
+  });
 
   // Open external links in the default browser, never in-app.
   win.webContents.setWindowOpenHandler(({ url }) => {

@@ -14,6 +14,7 @@ App.monitor = {
   bytesUp: 0, bytesDown: 0,
   timer: null,
   _countsKey: '',
+  _inFlight: false,
 
   start() {
     if (this.timer) return;
@@ -22,7 +23,15 @@ App.monitor = {
   },
   stop() { clearInterval(this.timer); this.timer = null; },
 
+  // A slow IPC round-trip must not let two samples overlap: they would write
+  // this.prev out of order and produce nonsense rates.
   async tick() {
+    if (this._inFlight) return;
+    this._inFlight = true;
+    try { await this._sample(); } finally { this._inFlight = false; }
+  },
+
+  async _sample() {
     const api = window.api;
     let sessions = [];
     try { sessions = await api.session.status(); } catch { return; }
@@ -208,10 +217,10 @@ App.mini = {
       const card = el('div', { class: 'mini-fwd' },
         el('div', { class: 'mini-fwd-top' },
           el('span', { class: 'fwd-type ' + f.type }, typeLetter[f.type] || f.type),
-          el('span', { class: 'mini-fwd-label', title: f.error || f.label }, f.label),
+          el('span', { class: 'mini-fwd-label', title: App.fwdErr(f) || f.label }, f.label),
           btn),
         el('div', { class: 'mini-fwd-bottom' },
-          el('span', { class: 'status-pill ' + f.status, title: f.error || '' }, el('span', { class: 'sd' }), statusText(f)),
+          el('span', { class: 'status-pill ' + f.status, title: App.fwdErr(f) }, el('span', { class: 'sd' }), statusText(f)),
           el('span', { class: 'mini-fwd-rates' },
             el('span', { class: 't-up' }, `↑ ${fmtRate(r.up)}`), ' ',
             el('span', { class: 't-down' }, `↓ ${fmtRate(r.down)}`))),
@@ -256,7 +265,7 @@ App.mini = {
       App.monitor.tick().catch(() => {});
       if (App.state.activeId === this.selId) App.ports.refresh(this.selId);
       if (f && f.status === 'active') App.toast(t('toast.fwdStarted', { label: f.label }), { type: 'success' });
-      else App.toast(t('toast.fwdFailed', { msg: (f && f.error) || '' }), { type: 'error', title: t('fwd.errorTitle') });
+      else App.toast(t('toast.fwdFailed', { msg: App.fwdErr(f) }), { type: 'error', title: t('fwd.errorTitle') });
     } catch (e) {
       App.toast(App.errMsg(e), { type: 'error', title: t('fwd.startFailed') });
     }

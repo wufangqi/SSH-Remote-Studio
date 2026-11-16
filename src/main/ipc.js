@@ -3,6 +3,33 @@
 // manager events to the renderer. All request handlers return {ok,data|error}
 // so error codes survive Electron's serialization.
 const { ipcMain, dialog } = require('electron');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { parseSshConfig, buildImportProfiles } = require('../core/ssh-config');
+
+// SRS_SSH_CONFIG is an explicit test/automation override; normal runs always
+// read the user's own ~/.ssh/config.
+function sshConfigPath() {
+  return process.env.SRS_SSH_CONFIG || path.join(os.homedir(), '.ssh', 'config');
+}
+
+function readSshConfig() {
+  const file = sshConfigPath();
+  try {
+    return { text: fs.readFileSync(file, 'utf8'), file, exists: true };
+  } catch (e) {
+    if (e.code === 'ENOENT') return { text: '', file, exists: false };
+    throw e;
+  }
+}
+
+function buildSshConfigProfiles() {
+  const read = readSshConfig();
+  const parsed = parseSshConfig(read.text);
+  const built = buildImportProfiles(parsed, { homeDir: os.homedir() });
+  return { ...read, ...built };
+}
 
 function handle(channel, fn) {
   ipcMain.handle(channel, async (event, ...args) => {
@@ -10,7 +37,13 @@ function handle(channel, fn) {
       const data = await fn(...args, event);
       return { ok: true, data: data === undefined ? null : data };
     } catch (e) {
-      return { ok: false, error: { message: e.friendly || e.message || String(e), code: e.code || null } };
+      // Numeric detail survives serialization so the UI can interpolate it
+      // into a localized message (file size limits, remote mtime, ...).
+      const detail = {};
+      for (const k of ['size', 'maxBytes', 'remoteMtime']) {
+        if (e[k] !== undefined) detail[k] = e[k];
+      }
+      return { ok: false, error: { message: e.friendly || e.message || String(e), code: e.code || null, ...detail } };
     }
   });
 }
@@ -30,13 +63,46 @@ function registerIpc({ manager, store, getWindow, rebuildMenu }) {
   manager.on('hostkey-mismatch', (p) => send('event:hostkey-mismatch', p));
   manager.on('forward-added', (p) => send('event:forward-added', p));
   manager.on('forward-removed', (p) => send('event:forward-removed', p));
-  manager.on('forward-error', (p) => send('event:forward-error', p));
+  // Errors are flattened at the serialization boundary: EventEmitter payloads
+  // cross webContents.send as structured clones that drop Error properties.
+  const errPayload = (e) => ({
+    message: (e && (e.friendly || e.message)) || String(e || ''),
+    code: (e && e.code) || null,
+  });
+  manager.on('forward-error', (p) => send('event:forward-error', { id: p.id, error: errPayload(p.error) }));
   manager.on('forward-changed', (p) => send('event:forward-changed', p));
 
   // ---- connections ----
   handle('connections:list', () => manager.listConnections());
   handle('connections:save', (conn) => manager.saveConnection(conn));
   handle('connections:delete', (id) => manager.deleteConnection(id));
+
+  // ---- ~/.ssh/config import ----
+  handle('sshconfig:preview', () => {
+    const { file, exists, hosts, warnings } = buildSshConfigProfiles();
+    return {
+      path: file,
+      exists,
+      warnings,
+      hosts: hosts.map((h) => ({
+        name: h.name,
+        host: h.host,
+        port: h.port,
+        username: h.username,
+        authType: h.authType,
+        hasKey: !!h.privateKeyPath,
+        jump: (h.jump || []).map((j) => ({ host: j.host, port: j.port, username: j.username })),
+        forwards: (h.forwards || []).length,
+      })),
+    };
+  });
+  handle('sshconfig:import', (names) => {
+    if (!Array.isArray(names) || !names.length) return [];
+    const { hosts } = buildSshConfigProfiles();
+    const wanted = new Set(names.map(String));
+    const picked = hosts.filter((h) => wanted.has(h.name));
+    return manager.importConnections(picked);
+  });
 
   // ---- sessions ----
   handle('session:connect', (configOrId) => manager.connect(configOrId));
@@ -55,7 +121,7 @@ function registerIpc({ manager, store, getWindow, rebuildMenu }) {
   handle('fs:remove', (id, p, opts) => manager.remove(id, p, opts));
   handle('fs:upload', (id, local, remote) => manager.upload(id, local, remote));
   handle('fs:download', (id, remote, local) => manager.download(id, remote, local));
-  handle('exec', (id, cmd) => manager.exec(id, cmd));
+  handle('exec', (id, cmd, opts) => manager.exec(id, cmd, opts));
 
   // ---- forwarding ----
   handle('forward:add', (id, def) => manager.addForward(id, def));
