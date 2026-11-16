@@ -6,18 +6,19 @@ const { RemotePath, pcall, friendlyError } = require('./util');
 
 const DEFAULT_MAX_READ = 8 * 1024 * 1024; // 8 MiB guard for the in-app editor
 
+// ssh2 reports mtime in seconds; tolerate servers that already send millis.
+const toMs = (t) => (t ? (t > 1e12 ? t : t * 1000) : 0);
+
 function attrsToEntry(name, attrs, parentPath) {
   const isDir = typeof attrs.isDirectory === 'function' ? attrs.isDirectory() : false;
   const isLink = typeof attrs.isSymbolicLink === 'function' ? attrs.isSymbolicLink() : false;
   const type = isLink ? 'symlink' : isDir ? 'dir' : 'file';
-  const rawMtime = attrs.mtime || 0;
-  const mtime = rawMtime > 1e12 ? rawMtime : rawMtime * 1000; // ssh2 uses seconds
   return {
     name,
     path: RemotePath.join(parentPath, name),
     type,
     size: attrs.size || 0,
-    mtime,
+    mtime: toMs(attrs.mtime),
     mode: attrs.mode,
     uid: attrs.uid,
     gid: attrs.gid,
@@ -91,7 +92,7 @@ class SftpService {
     if (st.size > maxBytes) {
       throw Object.assign(
         new Error(`文件过大（${st.size} 字节），超过编辑器上限 ${maxBytes} 字节`),
-        { code: 'ETOOLARGE', size: st.size }
+        { code: 'ETOOLARGE', size: st.size, maxBytes }
       );
     }
     let buf;
@@ -102,28 +103,43 @@ class SftpService {
     }
     const sample = buf.subarray(0, Math.min(buf.length, 8000));
     const binary = sample.includes(0);
+    // Base64 is how the renderer loads images for Markdown preview; it must
+    // work for binary payloads too. Other encodings still refuse binary data.
+    const base64 = encoding === 'base64';
     return {
       path: p,
       size: buf.length,
-      mtime: st.mtime ? (st.mtime > 1e12 ? st.mtime : st.mtime * 1000) : 0,
+      mtime: toMs(st.mtime),
       mode: st.mode,
       binary,
-      content: binary ? null : buf.toString(encoding),
-      encoding: binary ? null : encoding,
+      content: binary && !base64 ? null : buf.toString(encoding),
+      encoding: binary && !base64 ? null : encoding,
     };
   }
 
-  async writeFile(p, content, { encoding = 'utf8', mode } = {}) {
+  // expectedMtime enables optimistic concurrency: saving over a file that
+  // changed on the remote since it was opened raises ECONFLICT instead of
+  // silently clobbering someone else's edit.
+  async writeFile(p, content, { encoding = 'utf8', mode, expectedMtime } = {}) {
     const sftp = await this._sftp();
+    if (expectedMtime) {
+      const st = await pcall(sftp.stat.bind(sftp), p).catch(() => null);
+      if (st && toMs(st.mtime) !== expectedMtime) {
+        throw Object.assign(new Error('远端文件在打开后已被修改'), {
+          code: 'ECONFLICT', remoteMtime: toMs(st.mtime),
+        });
+      }
+    }
     const data = Buffer.isBuffer(content) ? content : Buffer.from(content, encoding);
     try {
       await pcall(sftp.writeFile.bind(sftp), p, data);
-      if (mode != null) await pcall(sftp.chmod.bind(sftp), p, mode);
+      // attrs.mode carries file-type bits; chmod only takes permission bits.
+      if (mode != null) await pcall(sftp.chmod.bind(sftp), p, mode & 0o7777);
     } catch (e) {
       throw friendlyError(e, `写入 ${p}`);
     }
     const st = await pcall(sftp.stat.bind(sftp), p).catch(() => null);
-    return { path: p, size: data.length, mtime: st && st.mtime ? st.mtime * 1000 : Date.now() };
+    return { path: p, size: data.length, mtime: st ? toMs(st.mtime) : Date.now() };
   }
 
   async mkdir(p, { recursive = false } = {}) {
@@ -163,15 +179,19 @@ class SftpService {
     return { oldPath, newPath };
   }
 
+  // lstat, never stat: a symlink is unlinked itself rather than followed into
+  // its target, so recursively deleting a link cannot destroy files that live
+  // outside the selected tree.
   async remove(p, { recursive = false } = {}) {
     const sftp = await this._sftp();
     let st;
     try {
-      st = await pcall(sftp.stat.bind(sftp), p);
+      st = await pcall(sftp.lstat.bind(sftp), p);
     } catch (e) {
       throw friendlyError(e, `删除 ${p}`);
     }
-    const isDir = st.isDirectory && st.isDirectory();
+    const isLink = typeof st.isSymbolicLink === 'function' && st.isSymbolicLink();
+    const isDir = !isLink && typeof st.isDirectory === 'function' && st.isDirectory();
     if (isDir) {
       if (!recursive) {
         try {
@@ -192,41 +212,26 @@ class SftpService {
     return { path: p, recursive };
   }
 
-  async upload(localPath, remotePath, { onProgress } = {}) {
+  async upload(localPath, remotePath) {
     const sftp = await this._sftp();
     const total = fs.statSync(localPath).size;
-    let transferred = 0;
-    const src = fs.createReadStream(localPath);
-    src.on('data', (chunk) => {
-      transferred += chunk.length;
-      if (onProgress) onProgress({ transferred, total });
-    });
-    const dst = sftp.createWriteStream(remotePath);
     try {
-      await pipeline(src, dst);
+      await pipeline(fs.createReadStream(localPath), sftp.createWriteStream(remotePath));
     } catch (e) {
       throw friendlyError(e, `上传到 ${remotePath}`);
     }
     return { localPath, remotePath, size: total };
   }
 
-  async download(remotePath, localPath, { onProgress } = {}) {
+  async download(remotePath, localPath) {
     const sftp = await this._sftp();
     const st = await pcall(sftp.stat.bind(sftp), remotePath);
-    const total = st.size || 0;
-    let transferred = 0;
-    const src = sftp.createReadStream(remotePath);
-    src.on('data', (chunk) => {
-      transferred += chunk.length;
-      if (onProgress) onProgress({ transferred, total });
-    });
-    const dst = fs.createWriteStream(localPath);
     try {
-      await pipeline(src, dst);
+      await pipeline(sftp.createReadStream(remotePath), fs.createWriteStream(localPath));
     } catch (e) {
       throw friendlyError(e, `下载 ${remotePath}`);
     }
-    return { remotePath, localPath, size: total };
+    return { remotePath, localPath, size: st.size || 0 };
   }
 }
 

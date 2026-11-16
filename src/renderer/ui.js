@@ -21,6 +21,7 @@ window.App = {
     sessions: {},        // id -> { state }
     cwd: null,
     selected: null,      // selected remote entry path
+    selectedEntry: null, // selected remote entry object
     openFile: null,      // { path, content, original, binary, size, mtime, mode, dirty }
     forwards: [],
     appInfo: null,
@@ -35,7 +36,6 @@ function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (k === 'class') node.className = v;
-    else if (k === 'html') node.innerHTML = v;
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2), v);
     else if (v !== null && v !== undefined) node.setAttribute(k, v);
   }
@@ -58,10 +58,6 @@ function icon(name, cls = '') {
   return svg;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 function fmtBytes(n) {
   if (!n && n !== 0) return '';
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -79,11 +75,36 @@ function fmtTime(ms) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-// Translate known core error codes; fall back to the raw message.
+// IPC failures arrive as Errors whose message is a JSON envelope
+// ({"__srs":1,"code":..,"message":..}) because contextBridge drops custom
+// properties. Unwrap it back into { code, message, ...detail }.
+App.errFrom = (e) => {
+  const raw = e ? String(e.message != null ? e.message : e) : '';
+  if (raw.startsWith('{"__srs":1,')) {
+    try {
+      const { __srs, ...rest } = JSON.parse(raw);
+      return rest;
+    } catch { /* not an envelope after all */ }
+  }
+  return { code: (e && e.code) || null, message: raw };
+};
+
+App.errCode = (e) => App.errFrom(e).code;
+
+// Translate known core error codes; fall back to the raw message. The unwrapped
+// envelope doubles as interpolation params (size, maxBytes, ...).
 App.errMsg = (e) => {
-  if (!e) return '';
-  if (e.code && hasText('err.' + e.code)) return t('err.' + e.code);
-  return e.message || String(e);
+  const { code, message, ...params } = App.errFrom(e);
+  if (code && hasText('err.' + code)) return t('err.' + code, params);
+  return message || '';
+};
+
+// Forward records carry a pre-rendered message plus its code; prefer the
+// localized text so an English UI never shows core-language strings.
+App.fwdErr = (f) => {
+  if (!f) return '';
+  if (f.errorCode && hasText('err.' + f.errorCode)) return t('err.' + f.errorCode);
+  return f.error || '';
 };
 
 App.setStatus = (text) => {

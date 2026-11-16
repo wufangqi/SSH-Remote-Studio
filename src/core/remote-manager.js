@@ -100,12 +100,26 @@ class RemoteManager extends EventEmitter {
   mkdir(id, p, opts) { return this.require(id).sftp.mkdir(p, opts); }
   rename(id, oldP, newP) { return this.require(id).sftp.rename(oldP, newP); }
   remove(id, p, opts) { return this.require(id).sftp.remove(p, opts); }
-  upload(id, local, remote, opts) { return this.require(id).sftp.upload(local, remote, opts); }
-  download(id, remote, local, opts) { return this.require(id).sftp.download(remote, local, opts); }
-  exec(id, cmd) { return this.require(id).session.exec(cmd); }
+  upload(id, local, remote) { return this.require(id).sftp.upload(local, remote); }
+  download(id, remote, local) { return this.require(id).sftp.download(remote, local); }
+  exec(id, cmd, opts) { return this.require(id).session.exec(cmd, opts); }
 
   // ---- forwarding delegates ----
   async addForward(id, def) {
+    // Re-adding the same endpoint (typically after a restart) must not create
+    // a second definition/listener. Auto-assigned ports (0) are excluded
+    // because each add intentionally asks the OS for a fresh port.
+    if (Number(def.bindPort) !== 0) {
+      const same = this.listForwards(id).find((f) => f.type === def.type
+        && f.bindHost === (def.bindHost || '127.0.0.1')
+        && Number(f.bindPort) === Number(def.bindPort)
+        && f.destHost === (def.destHost || '')
+        && Number(f.destPort) === Number(def.destPort || 0));
+      if (same) {
+        if (same.status === 'active' || same.status === 'starting') return same;
+        return this.restartForward(id, same.id);
+      }
+    }
     const fwd = await this.require(id).forwards.add(def);
     this._persistForwardDef(id, def, fwd.id);
     return fwd;
@@ -143,9 +157,14 @@ class RemoteManager extends EventEmitter {
   // already exist in the session (kept across a disconnect) are restarted
   // under the same id instead of being duplicated.
   _restoreForwards(connId, entry) {
-    if (!this.store || this.store.getSetting('restoreForwards', true) === false) return;
+    if (!this.store) return;
     const defs = this.store.listForwards(connId);
     if (!defs.length) return;
+    // Always surface the saved definitions, even when auto-start is off.
+    // The setting only controls whether listeners are opened, not whether the
+    // user can see and manually start their configuration.
+    entry.forwards.load(defs);
+    if (this.store.getSetting('restoreForwards', true) === false) return;
     (async () => {
       for (const d of defs) {
         try {
@@ -171,6 +190,36 @@ class RemoteManager extends EventEmitter {
   // ---- persistence delegates ----
   listConnections() { return this.store ? this.store.listConnections() : []; }
   saveConnection(conn) { return this.store.saveConnection(conn); }
+
+  // Import profiles produced by the ~/.ssh/config importer. Re-importing the
+  // same alias updates the existing profile (so a saved password is kept)
+  // instead of creating duplicates; imported forwards are merged by their
+  // endpoint key so manual forwards are never dropped.
+  importConnections(profiles = []) {
+    if (!this.store) return [];
+    const existing = this.store.listConnections();
+    const saved = [];
+    for (const input of profiles) {
+      const { forwards, ...profile } = input;
+      const match = existing.find((c) => c.name === profile.name
+        && c.host === profile.host
+        && c.port === (profile.port || 22)
+        && c.username === profile.username);
+      if (match) profile.id = match.id;
+      const conn = this.store.saveConnection(profile);
+      if (Array.isArray(forwards) && forwards.length) {
+        const key = (f) => `${f.type}|${f.bindHost}|${f.bindPort}|${f.destHost}|${f.destPort}`;
+        const merged = this.store.listForwards(conn.id).slice();
+        const seen = new Set(merged.map(key));
+        for (const f of forwards) {
+          if (!seen.has(key(f))) { merged.push(f); seen.add(key(f)); }
+        }
+        this.store.setForwards(conn.id, merged);
+      }
+      saved.push(conn);
+    }
+    return saved;
+  }
   deleteConnection(id) {
     const entry = this.sessions.get(id);
     if (entry) { entry.session.destroy(); entry.forwards.destroy(); this.sessions.delete(id); }

@@ -3,12 +3,22 @@
 // contextIsolation is on; the renderer only sees `window.api`.
 const { contextBridge, ipcRenderer } = require('electron');
 
+// contextBridge copies only message/stack of a rejection, so the error code
+// and numeric detail would be lost. They ride inside the message as a small
+// JSON envelope that the renderer rehydrates (App.errFrom in ui.js).
+function encodeError(info) {
+  const payload = { __srs: 1, code: info.code || null };
+  for (const k of ['size', 'maxBytes', 'remoteMtime']) {
+    if (info[k] !== undefined) payload[k] = info[k];
+  }
+  payload.message = info.message || '';
+  return JSON.stringify(payload);
+}
+
 async function call(channel, ...args) {
   const res = await ipcRenderer.invoke(channel, ...args);
   if (res && res.ok === false) {
-    const err = new Error(res.error ? res.error.message : '未知错误');
-    err.code = res.error ? res.error.code : null;
-    throw err;
+    throw new Error(encodeError(res.error || {}));
   }
   return res ? res.data : null;
 }
@@ -25,6 +35,10 @@ const api = {
     list: () => call('connections:list'),
     save: (conn) => call('connections:save', conn),
     delete: (id) => call('connections:delete', id),
+  },
+  sshconfig: {
+    preview: () => call('sshconfig:preview'),
+    import: (names) => call('sshconfig:import', names),
   },
   session: {
     connect: (configOrId) => call('session:connect', configOrId),
@@ -44,7 +58,7 @@ const api = {
     upload: (id, local, remote) => call('fs:upload', id, local, remote),
     download: (id, remote, local) => call('fs:download', id, remote, local),
   },
-  exec: (id, cmd) => call('exec', id, cmd),
+  exec: (id, cmd, opts) => call('exec', id, cmd, opts),
   forward: {
     add: (id, def) => call('forward:add', id, def),
     stop: (id, fid) => call('forward:stop', id, fid),
@@ -71,7 +85,7 @@ const api = {
   },
   // Subscribe to a main-process event. Returns an unsubscribe function.
   on: (name, cb) => {
-    if (!EVENT_NAMES.includes(name)) throw new Error('未知事件: ' + name);
+    if (!EVENT_NAMES.includes(name)) throw new Error('Unknown event: ' + name);
     const listener = (_e, payload) => cb(payload);
     ipcRenderer.on('event:' + name, listener);
     return () => ipcRenderer.removeListener('event:' + name, listener);

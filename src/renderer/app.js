@@ -22,6 +22,7 @@
 
   // ---------- sidebar / welcome ----------
   $('#btn-add-conn').addEventListener('click', () => App.connections.openForm());
+  $('#btn-import-sshconfig').addEventListener('click', () => App.connections.importFromSshConfig());
   $('#btn-welcome-add').addEventListener('click', () => App.connections.openForm());
   $('#btn-disconnect').addEventListener('click', () => {
     if (App.state.activeId) App.connections.disconnect(App.state.activeId);
@@ -29,8 +30,12 @@
 
   // ---------- files toolbar ----------
   $('#btn-home').addEventListener('click', async () => {
-    const h = await api.fs.home(App.state.activeId);
-    App.files.navigate(h);
+    try {
+      const h = await App.files.homePath(App.state.activeId);
+      await App.files.navigate(h);
+    } catch (e) {
+      App.toast(App.errMsg(e), { type: 'error', title: t('files.listFailed') });
+    }
   });
   $('#btn-up').addEventListener('click', () => App.files.navigate(App.files.dirname(App.state.cwd || '/')));
   $('#btn-refresh').addEventListener('click', () => App.files.loadRoot());
@@ -45,7 +50,8 @@
   // ---------- editor ----------
   const editor = $('#editor');
   editor.addEventListener('input', () => App.files.onEditorInput());
-  editor.addEventListener('scroll', () => { $('#gutter').scrollTop = editor.scrollTop; });
+  editor.addEventListener('scroll', () => App.files.syncGutter());
+  window.addEventListener('resize', () => App.files.syncGutter());
   editor.addEventListener('keydown', (e) => {
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -55,6 +61,7 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); App.files.save(); }
   });
   $('#btn-save').addEventListener('click', () => App.files.save());
+  $('#btn-md-mode').addEventListener('click', () => App.files.toggleMdMode());
   $('#btn-close-file').addEventListener('click', async () => {
     const f = App.state.openFile;
     if (f && f.dirty) {
@@ -202,7 +209,7 @@
     App.connections.setState(id, 'disconnected');
     if (App.state.activeId === id) App.toast(t('toast.connClosed'), { type: 'warn', title: t('toast.connClosed.title') });
   });
-  api.on('session-error', ({ error }) => App.toast(error.message, { type: 'error', title: t('toast.sessionError') }));
+  api.on('session-error', ({ error }) => App.toast(App.errMsg(error), { type: 'error', title: t('toast.sessionError') }));
   api.on('hostkey-new', ({ host, port, fingerprint }) => {
     App.toast(t('toast.hostkeyNew', { host: `${host}:${port}`, fp: fingerprint }), { type: 'info', title: t('toast.hostkeyNew.title'), timeout: 6000 });
   });
@@ -213,7 +220,7 @@
   api.on('forward-removed', () => App.ports.refresh());
   api.on('forward-changed', () => App.ports.refresh());
   api.on('forward-error', ({ error }) => {
-    App.toast((error && error.message) || t('fwd.startFailed'), { type: 'error', title: t('fwd.errorTitle') });
+    App.toast(App.errMsg(error) || t('fwd.startFailed'), { type: 'error', title: t('fwd.errorTitle') });
     App.ports.refresh();
   });
   api.on('menu-new-connection', () => App.connections.openForm());

@@ -1,14 +1,32 @@
 {
   "name": "ssh-remote-studio",
   "version": "0.3.1",
-  "description": "Cross-platform SSH remote tool (Windows/macOS/Linux): open any remote folder over SSH (browse + edit) and manage local/remote/dynamic port forwarding.",
+  "description": "SSH tunnel workspace (Windows-first; macOS/Linux beta): graphical local -L, remote -R and dynamic SOCKS -D forwarding with persistence, restart recovery and live traffic, plus remote file browsing/editing. No agent required on the remote host.",
+  "keywords": [
+    "ssh",
+    "tunnel",
+    "port-forwarding",
+    "socks5",
+    "sftp",
+    "electron"
+  ],
   "main": "src/main/main.js",
   "license": "MIT",
   "author": "SSH Remote Studio",
+  "homepage": "https://github.com/wufangqi/SSH-Remote-Studio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wufangqi/SSH-Remote-Studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wufangqi/SSH-Remote-Studio/issues"
+  },
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/integration.test.js",
+    "test": "node --test test/integration.test.js test/ssh-config.test.js test/markdown.test.js",
     "test:integration": "node --test test/integration.test.js",
+    "test:sshconfig": "node --test test/ssh-config.test.js",
+    "test:markdown": "node --test test/markdown.test.js",
     "smoke": "electron test/ui-smoke.js",
     "smoke:headless": "xvfb-run -a electron test/ui-smoke.js --no-sandbox --disable-gpu",
     "pack": "electron-builder --dir",

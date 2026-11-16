@@ -3,6 +3,7 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
@@ -10,11 +11,42 @@ const { RemoteManager } = require('../src/core/remote-manager');
 const { Store } = require('../src/core/store');
 const { TestSshServer, startEchoServer } = require('./test-server');
 
+const TMP_DIRS = new Set();
+
 function tmpRoot() {
   const dir = path.join(__dirname, `.tmp-${crypto.randomBytes(4).toString('hex')}`);
   fs.mkdirSync(dir, { recursive: true });
+  TMP_DIRS.add(dir);
   return dir;
 }
+
+// Safety net: individual tests clean up eagerly, but a failed assertion must
+// not leave `.tmp-*` residue in the repo.
+after(() => {
+  for (const d of TMP_DIRS) {
+    try { fs.rmSync(d, { recursive: true, force: true }); } catch {}
+  }
+  TMP_DIRS.clear();
+});
+
+// Windows only allows directory symlinks with elevation, but junctions need
+// no privilege and lstat reports them as links, which is what we exercise.
+function makeDirLink(target, linkPath) {
+  try { fs.symlinkSync(target, linkPath, 'dir'); return true; } catch {}
+  try { fs.symlinkSync(target, linkPath, 'junction'); return true; } catch {}
+  return false;
+}
+
+const symlinksSupported = (() => {
+  const probe = path.join(os.tmpdir(), `srs-sym-probe-${crypto.randomBytes(3).toString('hex')}`);
+  try {
+    if (!makeDirLink(os.tmpdir(), probe)) return false;
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function tcpEcho(port, payload) {
   return new Promise((resolve, reject) => {
@@ -194,6 +226,69 @@ describe('SSH Remote Studio core integration', () => {
     await m.destroy();
   });
 
+  it('SFTP: recursive remove unlinks a symlink instead of deleting its target', async (t) => {
+    if (!symlinksSupported) return t.skip('symlinks are not permitted on this host');
+    const victim = path.join(root, 'victim');
+    const browse = path.join(root, 'browse');
+    fs.mkdirSync(path.join(victim, 'inner'), { recursive: true });
+    fs.writeFileSync(path.join(victim, 'inner', 'keep.txt'), 'keep me');
+    fs.mkdirSync(browse, { recursive: true });
+    makeDirLink(victim, path.join(browse, 'link'));
+
+    const m = newManager();
+    const cfg = baseConfig();
+    try {
+      await m.connect(cfg);
+      await m.remove(cfg.id, '/browse/link', { recursive: true });
+      assert.ok(fs.existsSync(path.join(victim, 'inner', 'keep.txt')), 'files behind the link must survive');
+      assert.ok(!fs.existsSync(path.join(browse, 'link')), 'the link itself must be removed');
+    } finally {
+      await m.destroy();
+      try { fs.unlinkSync(path.join(browse, 'link')); } catch {}
+      fs.rmSync(victim, { recursive: true, force: true });
+      fs.rmSync(browse, { recursive: true, force: true });
+    }
+  });
+
+  it('SFTP: write rejects when the remote file changed since it was read', async () => {
+    const m = newManager();
+    const cfg = baseConfig();
+    const fsPath = path.join(root, 'conflict.txt');
+    try {
+      await m.connect(cfg);
+      await m.writeFile(cfg.id, '/conflict.txt', 'v1');
+      const before = await m.readFile(cfg.id, '/conflict.txt');
+
+      fs.writeFileSync(fsPath, 'v2-out-of-band');
+      const later = new Date(Date.now() + 60_000);
+      fs.utimesSync(fsPath, later, later);
+
+      await assert.rejects(
+        () => m.writeFile(cfg.id, '/conflict.txt', 'mine', { expectedMtime: before.mtime }),
+        (e) => e.code === 'ECONFLICT'
+      );
+      // An explicit overwrite (no expectedMtime) still succeeds.
+      await m.writeFile(cfg.id, '/conflict.txt', 'mine');
+      assert.equal((await m.readFile(cfg.id, '/conflict.txt')).content, 'mine');
+    } finally {
+      await m.destroy();
+      fs.rmSync(fsPath, { force: true });
+    }
+  });
+
+  it('exec caps captured output', async () => {
+    const m = newManager();
+    const cfg = baseConfig();
+    await m.connect(cfg);
+    try {
+      const res = await m.exec(cfg.id, 'echo a-long-line-of-output', { maxBytes: 4 });
+      assert.equal(res.truncated, true);
+      assert.ok(res.stdout.length < 32);
+    } finally {
+      await m.destroy();
+    }
+  });
+
   it('local forward (-L) tunnels to a TCP service', async () => {
     const m = newManager();
     const cfg = baseConfig();
@@ -290,19 +385,166 @@ describe('SSH Remote Studio core integration', () => {
       decrypt: (s) => Buffer.from(s, 'base64').toString('utf8'),
     };
     const store = new Store(dir, { cipher });
-    const saved = store.saveConnection({ host: 'h', port: 22, username: 'u', password: 's3cret', privateKey: 'KEYDATA' });
+    const saved = store.saveConnection({
+      host: 'h', port: 22, username: 'u', password: 's3cret', privateKey: 'KEYDATA', homeDir: '/project',
+      jump: [{ host: 'jump', port: 22, username: 'ju', authType: 'password', password: 'jumpsecret' }],
+    });
+    assert.equal(saved.homeDir, '/project');
     assert.equal(saved.has_password, true);
     assert.equal(saved.password, undefined);
     assert.equal(saved.privateKey, undefined);
+    assert.equal(saved.jump[0].password, undefined);
+    assert.equal(saved.jump[0].has_password, true);
     const raw = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
     assert.ok(!JSON.stringify(raw).includes('s3cret'));
     assert.ok(!JSON.stringify(raw).includes('KEYDATA'));
+    assert.ok(!JSON.stringify(raw).includes('jumpsecret'));
     const full = store.getConnectConfig(saved.id);
     assert.equal(full.password, 's3cret');
     assert.equal(full.privateKey, 'KEYDATA');
+    assert.equal(full.homeDir, '/project');
+    assert.equal(full.jump[0].password, 'jumpsecret');
+    // Editing the profile without re-typing the jump password keeps it.
+    store.saveConnection({ id: saved.id, host: 'h', port: 22, username: 'u', jump: [{ host: 'jump', port: 22, username: 'ju', authType: 'password' }] });
+    assert.equal(store.getConnectConfig(saved.id).jump[0].password, 'jumpsecret');
     const list = store.listConnections();
     assert.equal(list[0].password, undefined);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('Store keeps stored secrets when absent and clears them on explicit null/empty', () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const a = store.saveConnection({ host: 'h', username: 'u', password: 'p1', passphrase: 'pp1' });
+    assert.equal(a.has_password, true);
+    assert.equal(a.has_passphrase, true);
+
+    // Field absent from the update -> the stored secret survives.
+    const b = store.saveConnection({ id: a.id, host: 'h', username: 'u' });
+    assert.equal(b.has_password, true);
+    assert.equal(store.getConnectConfig(a.id).password, 'p1');
+
+    // Explicit null -> cleared.
+    const c = store.saveConnection({ id: a.id, host: 'h', username: 'u', password: null });
+    assert.equal(c.has_password, false);
+    assert.equal(c.has_passphrase, true);
+    assert.equal(store.getConnectConfig(a.id).password, undefined);
+
+    // Empty string -> also cleared.
+    const d = store.saveConnection({ id: a.id, host: 'h', username: 'u', passphrase: '' });
+    assert.equal(d.has_passphrase, false);
+    assert.equal(store.getConnectConfig(a.id).passphrase, undefined);
+  });
+
+  it('Store writes config.json with owner-only permissions', (t) => {
+    if (process.platform === 'win32') return t.skip('POSIX mode bits are not meaningful on Windows');
+    const dir = tmpRoot();
+    new Store(dir).saveConnection({ host: 'h', username: 'u', password: 'p' });
+    const mode = (fs.statSync(path.join(dir, 'config.json')).mode & 0o777).toString(8);
+    assert.equal(mode, '600');
+  });
+});
+
+describe('ProxyJump chain', () => {
+  let target, jump, jump2, targetInfo, jumpInfo, jump2Info, targetRoot, jumpRoot, jump2Root;
+
+  before(async () => {
+    targetRoot = tmpRoot();
+    jumpRoot = tmpRoot();
+    jump2Root = tmpRoot();
+    fs.writeFileSync(path.join(targetRoot, 'through-jump.txt'), 'reached through jump\n');
+    target = new TestSshServer({ root: targetRoot });
+    jump = new TestSshServer({ root: jumpRoot });
+    jump2 = new TestSshServer({ root: jump2Root });
+    targetInfo = await target.start(0);
+    jumpInfo = await jump.start(0);
+    jump2Info = await jump2.start(0);
+  });
+
+  after(async () => {
+    if (target) await target.stop();
+    if (jump) await jump.stop();
+    if (jump2) await jump2.stop();
+    for (const d of [targetRoot, jumpRoot, jump2Root]) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch {}
+    }
+  });
+
+  const hop = (info) => ({
+    host: info.host, port: info.port,
+    username: info.username, authType: 'password', password: info.password,
+  });
+
+  function config(extra = {}) {
+    return {
+      id: 'jump-conn',
+      host: targetInfo.host, port: targetInfo.port,
+      username: targetInfo.username, password: targetInfo.password,
+      jump: [hop(jumpInfo)],
+      ...extra,
+    };
+  }
+
+  it('connects to the target through a jump host and uses SFTP', async () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    try {
+      const session = await m.connect(config());
+      assert.equal(session.state, 'connected');
+      const listed = await m.list('jump-conn', '/');
+      assert.ok(listed.entries.some((e) => e.name === 'through-jump.txt'));
+      const content = await m.readFile('jump-conn', '/through-jump.txt');
+      assert.match(content.content, /reached through jump/);
+
+      // A local forward must work over the same jump-chain transport.
+      const echo = await startEchoServer();
+      try {
+        const fwd = await m.addForward('jump-conn', {
+          type: 'local', bindHost: '127.0.0.1', bindPort: 0,
+          destHost: '127.0.0.1', destPort: echo.port,
+        });
+        assert.equal(fwd.status, 'active');
+        const echoed = await tcpEcho(fwd.bindPort, 'through-jump-forward');
+        assert.equal(echoed.toString(), 'through-jump-forward');
+      } finally {
+        echo.close();
+      }
+    } finally {
+      await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('supports a two-hop ProxyJump chain', async () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    try {
+      await m.connect(config({ jump: [hop(jump2Info), hop(jumpInfo)] }));
+      const listed = await m.list('jump-conn', '/');
+      assert.ok(listed.entries.some((e) => e.name === 'through-jump.txt'));
+      const content = await m.readFile('jump-conn', '/through-jump.txt');
+      assert.match(content.content, /reached through jump/);
+    } finally {
+      await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports the failing jump hop when its credentials are wrong', async () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    try {
+      await assert.rejects(
+        m.connect(config({ jump: [{ host: jumpInfo.host, port: jumpInfo.port, username: jumpInfo.username, authType: 'password', password: 'wrong' }] })),
+        (e) => /跳板机 1/.test(e.friendly || e.message),
+      );
+    } finally {
+      await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -358,6 +600,63 @@ describe('forward persistence and restart restore', () => {
     }
   });
 
+  it('re-adding the same endpoint does not duplicate the definition', async () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
+    const echo = await startEchoServer();
+    const probe = net.createServer();
+    try {
+      await m.connect(cfg());
+      await new Promise((r) => probe.listen(0, '127.0.0.1', r));
+      const port = probe.address().port;
+      await new Promise((r) => probe.close(r));
+      const def = { type: 'local', bindHost: '127.0.0.1', bindPort: port, destHost: '127.0.0.1', destPort: echo.port };
+      const first = await m.addForward(CONN, def);
+      const second = await m.addForward(CONN, def);
+      assert.equal(second.id, first.id);
+      assert.equal(store.listForwards(CONN).length, 1);
+      assert.equal(m.listForwards(CONN).length, 1);
+    } finally {
+      try { probe.close(); } catch {}
+      echo.close();
+      await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('an auto-assigned (port 0) forward re-requests a free port on restart', async () => {
+    const dir = tmpRoot();
+    const store = new Store(dir);
+    const m = new RemoteManager({ store, hostKeyPolicy: 'accept', forwardRetry: { attempts: 2, delayMs: 20 } });
+    const echo = await startEchoServer();
+    let blocker = null;
+    try {
+      await m.connect(cfg());
+      const fwd = await m.addForward(CONN, {
+        type: 'local', bindHost: '127.0.0.1', bindPort: 0, destHost: '127.0.0.1', destPort: echo.port,
+      });
+      assert.equal(fwd.status, 'active');
+      const firstPort = fwd.bindPort;
+
+      await m.stopForward(CONN, fwd.id);
+      // Occupy the port the OS handed out first: a restart that pinned the
+      // resolved port would now fail instead of asking for a new one.
+      blocker = net.createServer(() => {});
+      await new Promise((r) => blocker.listen(firstPort, '127.0.0.1', r));
+
+      const again = await m.restartForward(CONN, fwd.id);
+      assert.equal(again.status, 'active');
+      assert.notEqual(again.bindPort, firstPort);
+      assert.equal(store.listForwards(CONN)[0].bindPort, 0); // persisted def stays "auto"
+    } finally {
+      if (blocker) { try { blocker.close(); } catch {} }
+      echo.close();
+      await m.destroy();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('retries a failing forward 5 times, then marks it disconnected and stops retrying', async () => {
     const dir = tmpRoot();
     const store = new Store(dir);
@@ -375,6 +674,7 @@ describe('forward persistence and restart restore', () => {
       assert.equal(fwd.status, 'disconnected');
       assert.equal(fwd.attempts, 5);
       assert.equal(fwd.maxAttempts, 5);
+      assert.equal(fwd.errorCode, 'EADDRINUSE');
       assert.ok(elapsed >= 4 * 20, 'must have waited between the 5 attempts');
       // No further automatic retries after giving up.
       await new Promise((r) => setTimeout(r, 150));
@@ -478,8 +778,15 @@ describe('forward persistence and restart restore', () => {
       m = new RemoteManager({ store, hostKeyPolicy: 'accept' });
       await m.connect(cfg());
       await new Promise((r) => setTimeout(r, 250));
-      assert.equal(m.listForwards(CONN).length, 0);
-      assert.equal(store.listForwards(CONN).length, 1); // definition kept for later
+      // The definition is visible as a disconnected row, but no listener is
+      // opened while auto-start is off.
+      const loaded = m.listForwards(CONN);
+      assert.equal(loaded.length, 1);
+      assert.notEqual(loaded[0].status, 'active');
+      assert.equal(store.listForwards(CONN).length, 1);
+      // Manual start from the row works and opens the tunnel.
+      const started = await m.restartForward(CONN, loaded[0].id);
+      assert.equal(started.status, 'active');
     } finally {
       echo.close();
       if (seed) await seed.destroy();
