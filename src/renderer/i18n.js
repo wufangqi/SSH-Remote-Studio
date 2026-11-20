@@ -65,6 +65,8 @@
       'files.rename.title': '重命名选中项',
       'files.delete.title': '删除选中项',
       'files.path.placeholder': '远程路径，回车跳转',
+      'files.reveal.title': '在文件树中定位这个文件',
+      'files.reveal.missing': '文件树里找不到这个路径',
 
       // editor
       'editor.save': '保存',
@@ -407,6 +409,8 @@
       'files.rename.title': 'Rename the selected item',
       'files.delete.title': 'Delete the selected item',
       'files.path.placeholder': 'Remote path — press Enter to jump',
+      'files.reveal.title': 'Show this file in the tree',
+      'files.reveal.missing': 'That path is not in the file tree',
 
       'editor.save': 'Save',
       'md.preview': 'Preview',

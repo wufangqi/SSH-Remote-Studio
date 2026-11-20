@@ -479,6 +479,11 @@ kbd {
 }
 .tree-node:hover { background: var(--hover); }
 .tree-node.selected { background: var(--active); box-shadow: inset 2px 0 0 var(--accent); }
+.tree-node.located { animation: tree-locate 900ms ease; }
+@keyframes tree-locate {
+  0%, 35% { background: color-mix(in srgb, var(--accent) 32%, var(--active)); }
+  100% { background: var(--active); }
+}
 .tree-node .twisty { width: 13px; height: 13px; color: var(--fg-dim); flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
 .tree-node .twisty .ic { width: 11px; height: 11px; transition: transform .15s; }
 .tree-node .twisty.open .ic { transform: rotate(90deg); }
@@ -497,7 +502,12 @@ kbd {
   padding: 7px 12px; border-bottom: 1px solid var(--border); background: var(--surface);
 }
 .editor-file-ic { color: var(--fg-muted); }
-.editor-path { font-family: var(--mono); font-size: 12px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.editor-path {
+  font-family: var(--mono); font-size: 12px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer;
+}
+.editor-path:hover { color: var(--accent); }
 .modified { color: var(--warn); font-size: 13px; animation: pulse 1.6s infinite; }
 .editor-info {
   color: var(--fg-dim); font-size: 10.5px; font-family: var(--mono);

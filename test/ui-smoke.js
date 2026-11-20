@@ -32,10 +32,11 @@ app.setVersion(require('../package.json').version);
 app.whenReady().then(async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'srs-smoke-root-'));
   const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'srs-smoke-data-'));
-  fs.mkdirSync(path.join(root, 'project'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'project', 'src', 'pkg'), { recursive: true });
   fs.mkdirSync(path.join(root, 'img'), { recursive: true });
   fs.writeFileSync(path.join(root, 'hello.txt'), 'hello remote\n');
   fs.writeFileSync(path.join(root, 'project', 'app.js'), 'console.log("hi");\n');
+  fs.writeFileSync(path.join(root, 'project', 'src', 'pkg', 'main.txt'), 'nested\n');
   fs.copyFileSync(path.join(__dirname, '..', 'build', 'icon.png'), path.join(root, 'img', 'icon.png'));
   // D-1 fixtures: a token with no space anywhere in it and > 100 characters —
   // the shape of a generated identifier or a long URL. One per inline context,
@@ -195,6 +196,37 @@ app.whenReady().then(async () => {
   check('edit saved to remote', await exec(`(async()=>{const d=await window.api.fs.read('${connId}','/hello.txt');return d.content.includes('edited-through-ui');})()`));
   check('opened file is recorded in recent', await exec(`(async()=>{const list=await window.api.settings.get('recentFiles',[]);return list.some(x=>x.connId==='${connId}'&&x.path==='/hello.txt');})()`));
   check('recent row is marked with its connection', await exec(`(() => { App.files.renderRecent(); const row = document.querySelector('#recent-list .recent-item'); if (!row) return false; const name = row.querySelector('.recent-conn-name'); const host = row.querySelector('.recent-conn-host'); return !!name && name.textContent === 'smoke-host' && !!host && host.textContent.includes('@'); })()`));
+  check('recent open expands nested folders and selects the file', await exec(`(async()=>{
+    App.layout.toggleTree(true);
+    await App.files.navigate('/img');
+    await App.files.openRecent({ connId: '${connId}', path: '/project/src/pkg/main.txt', name: 'main.txt' });
+    const opened = (p) => !!document.querySelector('#tree .tree-node[data-path="' + p + '"] .twisty.open');
+    const selected = document.querySelector('#tree .tree-node.selected');
+    return App.state.cwd === '/' && !App.layout.state.treeCollapsed &&
+      opened('/project') && opened('/project/src') && opened('/project/src/pkg') &&
+      !!selected && selected.dataset.path === '/project/src/pkg/main.txt' &&
+      document.getElementById('editor').value.includes('nested');
+  })()`));
+  check('editor path scrolls the tree to the open file', await exec(`(async()=>{
+    const pane = document.getElementById('tree-pane');
+    const prev = pane.style.maxHeight;
+    pane.style.maxHeight = '72px';
+    await App.files.navigate('/img');
+    document.getElementById('editor-path').click();
+    let visible = false;
+    for (let i = 0; i < 40; i++) {
+      const row = document.querySelector('#tree .tree-node.selected');
+      if (row && row.dataset.path === '/project/src/pkg/main.txt' && App.state.cwd === '/') {
+        const paneRect = pane.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        visible = rowRect.top >= paneRect.top - 2 && rowRect.bottom <= paneRect.bottom + 2;
+        if (visible) break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    pane.style.maxHeight = prev;
+    return visible;
+  })()`));
   await shot('screenshot-files.png');
 
   // ---- saving over an out-of-band edit must prompt, not clobber ----

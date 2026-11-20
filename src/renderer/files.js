@@ -4,6 +4,7 @@ App.files = {
   _mdToken: 0,
   _recent: [],
   _recentLoaded: false,
+  _revealToken: 0,
   RECENT_LIMIT: 40,
   join(dir, name) { return dir.endsWith('/') ? dir + name : dir + '/' + name; },
   dirname(p) { const i = p.lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); },
@@ -168,7 +169,92 @@ App.files = {
     if (App.state.activeId !== item.connId) return;
     const session = App.state.sessions[item.connId];
     if (!session || session.state !== 'connected') return;
-    await this.openFile({ path: item.path, name: item.name || this.basename(item.path), type: 'file' });
+    const entry = { path: item.path, name: item.name || this.basename(item.path), type: 'file' };
+    await this.openFile(entry);
+    await this.revealInTree(entry.path);
+  },
+
+  isUnder(root, filePath) {
+    const base = this.normalizeRemote(root || '/');
+    const file = this.normalizeRemote(filePath || '/');
+    if (base === '/') return file.startsWith('/');
+    return file === base || file.startsWith(base + '/');
+  },
+
+  // Expand every parent of filePath under the current tree root, select the
+  // file, and scroll the tree pane so that row is in view. A file outside the
+  // current root moves the root to the home directory when the file lives
+  // there, otherwise to the file's parent folder.
+  async revealInTree(filePath) {
+    const token = ++this._revealToken;
+    const id = App.state.activeId;
+    if (!id || !filePath) return;
+    const alive = () => token === this._revealToken && App.state.activeId === id;
+    let target = this.normalizeRemote(filePath);
+    try {
+      const real = await window.api.fs.realpath(id, filePath);
+      if (!alive()) return;
+      if (real) target = this.normalizeRemote(real);
+    } catch { /* a missing path still gets one attempt against the tree */ }
+    if (!alive()) return;
+    if (!this.isUnder(App.state.cwd || '/', target)) {
+      let root = this.dirname(target);
+      try {
+        const home = await this.homePath(id);
+        if (!alive()) return;
+        if (home && this.isUnder(home, target)) root = home;
+      } catch { /* keep the parent directory */ }
+      if (this.normalizeRemote(App.state.cwd || '/') !== this.normalizeRemote(root)) {
+        await this.navigate(root);
+        if (!alive()) return;
+      }
+      if (!this.isUnder(App.state.cwd || '/', target)) return;
+    }
+    const found = await this.expandTo(target, alive);
+    if (alive() && !found) App.toast(t('files.reveal.missing'), { type: 'warn' });
+  },
+
+  async expandTo(filePath, alive) {
+    const cwd = this.normalizeRemote(App.state.cwd || '/');
+    const target = this.normalizeRemote(filePath);
+    if (!this.isUnder(cwd, target) || target === cwd) return false;
+    const rest = cwd === '/' ? target.slice(1) : target.slice(cwd.length + 1);
+    const parts = rest.split('/').filter(Boolean);
+    let dir = cwd;
+    for (let i = 0; i < parts.length; i++) {
+      if (alive && !alive()) return false;
+      const full = dir === '/' ? '/' + parts[i] : dir + '/' + parts[i];
+      const row = $('#tree') && $('#tree').querySelector(`.tree-node[data-path="${CSS.escape(full)}"]`);
+      if (!row || !row.isConnected) return false;
+      const last = i === parts.length - 1;
+      if (last) {
+        this.select({ path: full, name: parts[i], type: 'file' }, row);
+        row.classList.remove('located');
+        void row.offsetWidth;
+        row.classList.add('located');
+        this.scrollTreeTo(row);
+        return true;
+      }
+      if (typeof row._setExpanded !== 'function') return false;
+      await row._setExpanded(true);
+      if (alive && !alive()) return false;
+      dir = full;
+    }
+    return false;
+  },
+
+  scrollTreeTo(row) {
+    const pane = $('#tree-pane');
+    if (!pane || !row) return;
+    if (App.layout && App.layout.state.treeCollapsed) App.layout.toggleTree(false);
+    const align = () => {
+      if (!row.isConnected) return;
+      const paneRect = pane.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const top = pane.scrollTop + (rowRect.top - paneRect.top) - (pane.clientHeight - rowRect.height) / 2;
+      pane.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    };
+    requestAnimationFrame(align);
   },
 
   async init(id) {
@@ -226,28 +312,42 @@ App.files = {
     if (isDir) {
       const childUl = el('ul', { hidden: true });
       li.append(childUl);
-      let loaded = false, expanded = false;
+      const state = { loaded: false, expanded: false };
+      let pending = null;
+      const setExpanded = async (open) => {
+        state.expanded = !!open;
+        twisty.classList.toggle('open', state.expanded);
+        childUl.hidden = !state.expanded;
+        if (!state.expanded || state.loaded) return;
+        if (!pending) {
+          pending = (async () => {
+            childUl.append(el('li', { class: 'tree-loading' }, t('files.loading')));
+            try {
+              const res = await window.api.fs.list(App.state.activeId, entry.path);
+              childUl.innerHTML = '';
+              if (!res.entries.length) childUl.append(el('li', { class: 'tree-loading' }, t('files.empty')));
+              for (const ch of res.entries) childUl.append(this.makeNode(ch));
+              state.loaded = true;
+            } catch (err) {
+              childUl.innerHTML = '';
+              childUl.append(el('li', { class: 'tree-loading' }, t('files.loadFailed')));
+              App.toast(App.errMsg(err), { type: 'error' });
+              state.loaded = false;
+              state.expanded = false;
+              twisty.classList.remove('open');
+              childUl.hidden = true;
+            } finally {
+              pending = null;
+            }
+          })();
+        }
+        await pending;
+      };
+      row._setExpanded = setExpanded;
       row.addEventListener('click', async (e) => {
         e.stopPropagation();
         this.select(entry, row);
-        expanded = !expanded;
-        twisty.classList.toggle('open', expanded);
-        childUl.hidden = !expanded;
-        if (expanded && !loaded) {
-          loaded = true;
-          childUl.append(el('li', { class: 'tree-loading' }, t('files.loading')));
-          try {
-            const res = await window.api.fs.list(App.state.activeId, entry.path);
-            childUl.innerHTML = '';
-            if (!res.entries.length) childUl.append(el('li', { class: 'tree-loading' }, t('files.empty')));
-            for (const ch of res.entries) childUl.append(this.makeNode(ch));
-          } catch (err) {
-            childUl.innerHTML = '';
-            childUl.append(el('li', { class: 'tree-loading' }, t('files.loadFailed')));
-            App.toast(App.errMsg(err), { type: 'error' });
-            loaded = false;
-          }
-        }
+        await setExpanded(!state.expanded);
       });
     } else {
       row.addEventListener('click', (e) => {
@@ -300,7 +400,7 @@ App.files = {
       $('#btn-md-mode').hidden = !markdown;
       $('#btn-save').hidden = false;
       $('#editor-path').textContent = entry.path;
-      $('#editor-path').title = entry.path;
+      $('#editor-path').title = t('files.reveal.title');
       $('#editor-info').textContent = `${fmtBytes(data.size)} · ${fmtTime(data.mtime)} · UTF-8`;
       $('#editor-modified').hidden = true;
       const editor = $('#editor');

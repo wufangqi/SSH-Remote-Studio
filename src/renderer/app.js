@@ -61,6 +61,19 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); App.files.save(); }
   });
   $('#btn-save').addEventListener('click', () => App.files.save());
+  const editorPath = $('#editor-path');
+  if (editorPath) {
+    const revealOpenFile = () => {
+      const f = App.state.openFile;
+      if (f && f.path) App.files.revealInTree(f.path);
+    };
+    editorPath.addEventListener('click', revealOpenFile);
+    editorPath.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      revealOpenFile();
+    });
+  }
   $('#btn-md-mode').addEventListener('click', () => App.files.toggleMdMode());
   $('#btn-recent-clear').addEventListener('click', () => App.files.clearRecent());
   $('#btn-close-file').addEventListener('click', async () => {
